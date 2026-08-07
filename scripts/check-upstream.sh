@@ -3,9 +3,10 @@
 # Answers the only question that matters about a candidate machine: will
 # fastlane.co.il serve it?
 #
-# Cloudflare refuses the cloud providers we tried (see the README table), so an
-# Israeli *datacenter* is not automatically an Israeli *connection*. Run this on
-# a VPS you're evaluating before you pay for a month of it.
+# The filter looks geographic — everything refused so far was outside Israel
+# (see the README table) — but every refused source was also a cloud provider,
+# and no Israeli datacenter IP has been tested. Run this on a VPS you're
+# evaluating before you pay for a month of it.
 #
 #   curl -fsSL https://raw.githubusercontent.com/miranido/fastlane-now/main/scripts/check-upstream.sh | bash
 #
@@ -47,9 +48,9 @@ case "$status" in
     rm -f "$body"; exit 0 ;;
   403)
     echo
-    echo "BLOCKED — Cloudflare is filtering this IP. An Israeli datacenter IP"
-    echo "is still a datacenter IP; try another provider, or run the fetcher on"
-    echo "an ordinary Israeli connection instead."
+    echo "BLOCKED — Cloudflare is filtering this IP. If this machine IS in"
+    echo "Israel, the rule isn't purely geographic: try another Israeli"
+    echo "provider, or run the fetcher on an ordinary Israeli connection."
     rm -f "$body"; exit 1 ;;
   *)
     echo "  $(head -c 200 "$body")"

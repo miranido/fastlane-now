@@ -86,23 +86,27 @@ no meaningful CPU, memory or bandwidth — one small POST a minute — so the
 constraint is entirely *where the packets come from*, never how big the machine
 is. The smallest instance any provider sells is oversized for this.
 
-The catch is that **an Israeli datacenter is not the same as an Israeli
-connection.** The block above tracks cloud providers, not just geography, and a
-VPS in Tel Aviv still sits on a hosting ASN. So on any candidate machine, settle
-it in ten seconds before paying for a month:
+The filter appears to be geographic: everything refused above was outside
+Israel, and the thing served was inside it. Note what that evidence *doesn't*
+settle, though — every blocked source was also a cloud provider, and no test has
+been run from an Israeli datacenter IP. If the rule is "not in Israel", any
+Israeli VPS works. If it also enumerates hosting networks, a Tel Aviv VPS could
+still be refused.
+
+That's a ten-second question on any candidate machine, so ask it before paying
+for a month:
 
 ```bash
 bash scripts/check-upstream.sh   # 200 → use it. 403 → try elsewhere.
 ```
 
-| Where | Why | Watch for |
-| --- | --- | --- |
-| A Raspberry Pi or old laptop on a home connection | The only option *known* to work — it's the same class of connection as the Mac that runs it today. No monthly cost. | Your own uptime. Fine, given the app degrades honestly when it stops. |
-| A VPS from an Israeli host (e.g. Kamatera, which bills hourly) | Cheapest real test — spin one up, run the check, destroy it if it 403s. | Hosting ASN; must be verified, not assumed. |
-| An Israel region at a global cloud (Vultr Tel Aviv, AWS `il-central-1`, GCP `me-west1`, Oracle Jerusalem) | Familiar tooling, hourly billing, easy to throw away. | The most likely to be filtered — these are exactly the ASNs the block targets. |
+| Where | Why |
+| --- | --- |
+| A VPS in an Israeli region — Kamatera, Vultr Tel Aviv, AWS `il-central-1`, GCP `me-west1`, Oracle Jerusalem | The obvious answer, and cheap: the smallest instance any of them sells is oversized for one POST a minute. Pick on hourly billing and signup friction, not specs. |
+| A Raspberry Pi or old laptop on a home connection | Zero monthly cost, and the same class of connection as the Mac that runs it today — so it works regardless of which rule Cloudflare is actually applying. |
 
-Prefer a provider that bills by the hour, so a failed check costs pennies rather
-than a month. Once something passes, install it:
+Prefer a provider that bills by the hour, so a machine that turns out to be
+refused costs pennies rather than a month. Once something passes, install it:
 
 ```bash
 sudo bash scripts/install-fetcher-linux.sh   # systemd timer, every minute
