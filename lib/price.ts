@@ -26,9 +26,13 @@ export type PriceSnapshot = {
 };
 
 export class PriceUnavailableError extends Error {
-  constructor(message: string, options?: { cause?: unknown }) {
+  /** Upstream HTTP status, when there was one. Absent for network errors. */
+  readonly status?: number;
+
+  constructor(message: string, options?: { cause?: unknown; status?: number }) {
     super(message, options);
     this.name = "PriceUnavailableError";
+    this.status = options?.status;
   }
 }
 
@@ -55,22 +59,44 @@ function formatInIsrael(date: Date, options: Intl.DateTimeFormatOptions) {
   }).format(date);
 }
 
+/**
+ * The site sits behind Cloudflare, which scores the whole header fingerprint,
+ * not just the IP. A bare server-side fetch — no Accept-Language, no
+ * sec-fetch-*, and a self-identifying bot User-Agent — looks nothing like the
+ * XHR the homepage actually sends, and gets challenged when it arrives from a
+ * datacenter range. These mirror the real request.
+ */
+const BROWSER_HEADERS: Record<string, string> = {
+  "Content-Type": "application/json; charset=UTF-8",
+  Accept: "application/json, text/javascript, */*; q=0.01",
+  "Accept-Language": "he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7",
+  "User-Agent":
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
+  Origin: "https://fastlane.co.il",
+  Referer: "https://fastlane.co.il/",
+  "X-Requested-With": "XMLHttpRequest",
+  "Sec-Fetch-Site": "same-origin",
+  "Sec-Fetch-Mode": "cors",
+  "Sec-Fetch-Dest": "empty",
+};
+
+function requestPrice(): Promise<Response> {
+  return fetch(PRICE_ENDPOINT, {
+    method: "POST",
+    headers: BROWSER_HEADERS,
+    body: "",
+    cache: "no-store",
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
+}
+
 export async function fetchCurrentPrice(): Promise<PriceSnapshot> {
   let response: Response;
   try {
-    response = await fetch(PRICE_ENDPOINT, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json, text/javascript, */*; q=0.01",
-        Referer: "https://fastlane.co.il/",
-        "User-Agent":
-          "Mozilla/5.0 (compatible; FastLaneNow/1.0; +https://github.com/)",
-      },
-      body: "",
-      cache: "no-store",
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
+    response = await requestPrice();
+    // A single retry: an edge that challenges a cold connection will often
+    // wave through the one right behind it.
+    if (!response.ok) response = await requestPrice();
   } catch (cause) {
     throw new PriceUnavailableError("Price endpoint unreachable", { cause });
   }
@@ -78,6 +104,7 @@ export async function fetchCurrentPrice(): Promise<PriceSnapshot> {
   if (!response.ok) {
     throw new PriceUnavailableError(
       `Price endpoint returned HTTP ${response.status}`,
+      { status: response.status },
     );
   }
 
