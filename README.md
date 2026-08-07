@@ -42,6 +42,37 @@ unwraps all of that.
 
 If they ever change it, that one file is the only thing that breaks.
 
+### Why there's a Cloudflare Worker in the middle
+
+The site is behind Cloudflare, which answers **403 to requests from cloud
+providers**. This isn't a header or fingerprint problem — the same fetch, with
+the same headers, behaves differently purely by source IP:
+
+| Source | Result |
+| --- | --- |
+| Ordinary Israeli connection | 200 in ~60ms |
+| Vercel (Frankfurt) | 403 |
+| Supabase Postgres egress (`pg_net`) | 403 |
+
+Both 403s return Cloudflare's access-denied page. So the app can't call the
+endpoint from its own server — and it can't call it from the browser either:
+the endpoint sends no `Access-Control-*` headers and its `OPTIONS` preflight
+404s, which rules out any client-side or service-worker fetch.
+
+[`workers/price-proxy`](workers/price-proxy/index.js) is a small relay that
+makes the call from Cloudflare's own network, which has a Tel Aviv edge —
+responses come back stamped `x-cf-colo: TLV`. It is not an open proxy: the
+target URL is hard-coded and every request must present `PROXY_SECRET`.
+
+We identify honestly: `FastLaneNow/1.0` with a link to this repo, no browser
+impersonation. That User-Agent is served normally, so there's nothing to gain
+by pretending otherwise, and if the operator ever objects the contact path is
+right there in the request.
+
+Set `PRICE_PROXY_URL` and `PRICE_PROXY_SECRET` and the app routes through the
+relay; leave them unset and it calls the endpoint directly, which is what local
+development does from an Israeli connection.
+
 ### Layout
 
 | Path | What it does |
