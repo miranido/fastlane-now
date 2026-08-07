@@ -1,0 +1,26 @@
+# Fires the fetcher every minute, and once shortly after boot.
+#
+#   systemctl enable --now fastlane-fetcher.timer
+#   systemctl list-timers fastlane-fetcher.timer
+#   journalctl -u fastlane-fetcher.service -f
+
+[Unit]
+Description=Fast Lane Now price fetcher, every minute
+Documentation=https://github.com/miranido/fastlane-now
+
+[Timer]
+OnBootSec=30s
+OnCalendar=*:0/1
+
+# Don't stack a catch-up burst after downtime — the app treats readings older
+# than three minutes as no reading at all, so a missed minute is simply missed.
+Persistent=false
+
+# Spread the call off the exact top of the minute. Every fetcher in the world
+# hitting :00 is a self-inflicted thundering herd, and nothing here needs the
+# reading to be second-aligned.
+RandomizedDelaySec=10
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

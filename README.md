@@ -79,6 +79,44 @@ So the one request that must come from Israel does:
 ordinary Israeli connection and posts the reading to `/api/price/ingest`.
 Everything else stays serverless. The server never calls fastlane.co.il.
 
+### Where to run the fetcher
+
+Anything always-on in Israel with Node 20+ and one outbound connection. It uses
+no meaningful CPU, memory or bandwidth — one small POST a minute — so the
+constraint is entirely *where the packets come from*, never how big the machine
+is. The smallest instance any provider sells is oversized for this.
+
+The catch is that **an Israeli datacenter is not the same as an Israeli
+connection.** The block above tracks cloud providers, not just geography, and a
+VPS in Tel Aviv still sits on a hosting ASN. So on any candidate machine, settle
+it in ten seconds before paying for a month:
+
+```bash
+bash scripts/check-upstream.sh   # 200 → use it. 403 → try elsewhere.
+```
+
+| Where | Why | Watch for |
+| --- | --- | --- |
+| A Raspberry Pi or old laptop on a home connection | The only option *known* to work — it's the same class of connection as the Mac that runs it today. No monthly cost. | Your own uptime. Fine, given the app degrades honestly when it stops. |
+| A VPS from an Israeli host (e.g. Kamatera, which bills hourly) | Cheapest real test — spin one up, run the check, destroy it if it 403s. | Hosting ASN; must be verified, not assumed. |
+| An Israel region at a global cloud (Vultr Tel Aviv, AWS `il-central-1`, GCP `me-west1`, Oracle Jerusalem) | Familiar tooling, hourly billing, easy to throw away. | The most likely to be filtered — these are exactly the ASNs the block targets. |
+
+Prefer a provider that bills by the hour, so a failed check costs pennies rather
+than a month. Once something passes, install it:
+
+```bash
+sudo bash scripts/install-fetcher-linux.sh   # systemd timer, every minute
+```
+
+That writes `/etc/fastlane-now.env` for `INGEST_URL` and `CRON_SECRET` — kept
+outside the checkout so a `git pull` can't clobber them — and enables the timer.
+On macOS use the launchd job instead:
+[`scripts/com.fastlane-now.fetcher.plist`](scripts/com.fastlane-now.fetcher.plist).
+
+Nothing about the fetcher is stateful or unique, so two of them in different
+places is a perfectly good redundancy story: ingest just stores whichever
+reading arrives.
+
 **When the fetcher stops, the app degrades honestly.** Readings older than
 three minutes are treated as no reading at all: the UI says the price is
 unavailable and the tick sends nothing, rather than pushing a stale price.
@@ -106,6 +144,9 @@ them.
 | `public/sw.js` | Service worker: push, notification click, offline shell. |
 | `scripts/fetch-price.mjs` | The once-a-minute fetcher. Runs in Israel, not on Vercel. |
 | `scripts/com.fastlane-now.fetcher.plist` | launchd job that keeps it running on macOS. |
+| `scripts/fastlane-fetcher.{service,timer}` | The same job for systemd — a VPS or a Pi. |
+| `scripts/install-fetcher-linux.sh` | Installs those units. Idempotent. |
+| `scripts/check-upstream.sh` | Does *this* machine get served, or 403? Run before paying. |
 | `scripts/make_icons.py` | Regenerates every icon from one definition. |
 
 ---

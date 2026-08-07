@@ -1,0 +1,33 @@
+# Runs the price fetcher once. The timer beside this file fires it every minute.
+#
+# Install: see scripts/install-fetcher-linux.sh, which writes both units and
+# starts the timer. The paths below are what that script fills in.
+
+[Unit]
+Description=Fast Lane Now price fetcher
+Documentation=https://github.com/miranido/fastlane-now
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=fastlane
+WorkingDirectory=/opt/fastlane-now
+
+# Secrets live outside the checkout so `git pull` can never clobber them.
+# The leading '-' means "carry on if it isn't there" — the script also falls
+# back to a .env.local in the project root.
+EnvironmentFile=-/etc/fastlane-now.env
+
+ExecStart=/usr/bin/node /opt/fastlane-now/scripts/fetch-price.mjs
+
+# One run should take well under a second. If the network hangs, give up
+# rather than leaving a run overlapping the next minute's.
+TimeoutStartSec=30
+
+# The fetcher needs nothing but outbound network.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/opt/fastlane-now
