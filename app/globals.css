@@ -51,6 +51,8 @@ body {
     var(--color-paper);
   color: var(--color-ink);
   -webkit-font-smoothing: antialiased;
+  /* Stop the native rubber-band from fighting our own pull-to-refresh. */
+  overscroll-behavior-y: contain;
   /* Keep content clear of the iPhone notch and home indicator once installed. */
   padding: env(safe-area-inset-top) env(safe-area-inset-right)
     env(safe-area-inset-bottom) env(safe-area-inset-left);

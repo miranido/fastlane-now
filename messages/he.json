@@ -16,6 +16,11 @@
     "retry": "נסו שוב",
     "live": "מתעדכן אוטומטית"
   },
+  "pull": {
+    "pull": "משכו לרענון",
+    "release": "שחררו לרענון",
+    "refreshing": "מרענן…"
+  },
   "form": {
     "intervalLabel": "עדכנו אותי כל",
     "durationLabel": "למשך",

@@ -21,6 +21,7 @@ import {
 } from "@/lib/push-client";
 import { RoadBackdrop } from "./RoadBackdrop";
 import { Notice, Segmented, Toggle, type NoticeTone } from "./ui";
+import { usePullToRefresh } from "./use-pull-to-refresh";
 
 const STORAGE_KEY = "fastlane-now.session";
 const PRICE_POLL_MS = 30_000;
@@ -357,6 +358,23 @@ export function PriceApp({ locale }: { locale: Locale }) {
     }
   }
 
+  // --- pull to refresh ----------------------------------------------------
+  // Installed to the home screen there's no browser reload button, so the
+  // gesture people already reach for has to do something.
+  const handleRefresh = useCallback(async () => {
+    await Promise.all([loadPrice(), refreshSession()]);
+  }, [loadPrice, refreshSession]);
+
+  const { distance: pullDistance, phase: pullPhase } =
+    usePullToRefresh(handleRefresh);
+
+  const pullLabel =
+    pullPhase === "refreshing"
+      ? t("pull.refreshing")
+      : pullPhase === "ready"
+        ? t("pull.release")
+        : t("pull.pull");
+
   // --- derived ------------------------------------------------------------
   const intervalLabel = (minutes: number) =>
     t("form.minutes", { count: minutes });
@@ -366,7 +384,49 @@ export function PriceApp({ locale }: { locale: Locale }) {
   return (
     <>
       <RoadBackdrop />
-      <main className="relative z-10 mx-auto flex min-h-dvh w-full max-w-md flex-col gap-5 px-5 pb-12 pt-6">
+
+      {/* Pull indicator. Rides down with the finger, then springs back. */}
+      {/* Decorative: the gesture is inherently visual, and a live region that
+          announced "pull to refresh" on every touch would be noise. */}
+      <div
+        aria-hidden
+        className="pointer-events-none fixed inset-x-0 top-0 z-30 flex justify-center"
+        style={{
+          transform: `translateY(${Math.max(pullDistance - 34, 0)}px)`,
+          opacity: pullDistance > 4 ? 1 : 0,
+          transition:
+            pullPhase === "pulling" || pullPhase === "ready"
+              ? "opacity 120ms ease"
+              : "transform 260ms cubic-bezier(0.22,1,0.36,1), opacity 200ms ease",
+        }}
+      >
+        <span className="mt-3 flex items-center gap-2 rounded-full border border-line bg-card px-3.5 py-1.5 text-xs font-medium text-navy shadow-sm">
+          <span
+            className={`inline-block h-3 w-3 rounded-full border-2 border-tangerine ${
+              pullPhase === "refreshing"
+                ? "animate-spin border-t-transparent"
+                : "border-t-transparent"
+            }`}
+            style={
+              pullPhase === "refreshing"
+                ? undefined
+                : { transform: `rotate(${pullDistance * 3}deg)` }
+            }
+          />
+          {pullLabel}
+        </span>
+      </div>
+
+      <main
+        className="relative z-10 mx-auto flex min-h-dvh w-full max-w-md flex-col gap-5 px-5 pb-12 pt-6"
+        style={{
+          transform: pullDistance ? `translateY(${pullDistance}px)` : undefined,
+          transition:
+            pullPhase === "pulling" || pullPhase === "ready"
+              ? undefined
+              : "transform 260ms cubic-bezier(0.22,1,0.36,1)",
+        }}
+      >
       <header className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-navy">

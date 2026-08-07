@@ -16,6 +16,11 @@
     "retry": "Try again",
     "live": "Updates automatically"
   },
+  "pull": {
+    "pull": "Pull down to refresh",
+    "release": "Release to refresh",
+    "refreshing": "Refreshing…"
+  },
   "form": {
     "intervalLabel": "Update me every",
     "durationLabel": "For",
