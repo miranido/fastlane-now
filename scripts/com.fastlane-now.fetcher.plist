@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Runs the price fetcher once a minute.
+
+  Install:
+    cp scripts/com.fastlane-now.fetcher.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.fastlane-now.fetcher.plist
+
+  Check:   launchctl list | grep fastlane
+  Logs:    tail -f /tmp/fastlane-fetcher.log
+  Stop:    launchctl unload ~/Library/LaunchAgents/com.fastlane-now.fetcher.plist
+
+  Edit the two paths below if the project or node live somewhere else —
+  launchd runs with a minimal PATH, so both must be absolute.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.fastlane-now.fetcher</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/node</string>
+        <string>/Users/idomiran/Projects/fastlane-now/scripts/fetch-price.mjs</string>
+    </array>
+
+    <key>StartInterval</key>
+    <integer>60</integer>
+
+    <!-- Fire once at load too, rather than waiting out the first minute. -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/idomiran/Projects/fastlane-now</string>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/fastlane-fetcher.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/fastlane-fetcher.log</string>
+
+    <!-- Don't restart in a tight loop if the network is down. -->
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+</dict>
+</plist>

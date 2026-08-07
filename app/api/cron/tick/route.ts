@@ -1,7 +1,8 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { buildPriceNotification, deliver } from "@/lib/notify";
-import { fetchCurrentPrice, type PriceSnapshot } from "@/lib/price";
+import type { PriceSnapshot } from "@/lib/price";
+import { readFreshPrice } from "@/lib/price-store";
 import { getServiceClient, type SubscriptionRow } from "@/lib/supabase";
 
 export const runtime = "nodejs";
@@ -41,17 +42,6 @@ function advance(from: Date, intervalMinutes: number, now: number): Date {
     next += step;
   } while (next <= now);
   return new Date(next);
-}
-
-async function recordSample(snapshot: PriceSnapshot) {
-  // Unique on observed_at, so re-observing the same reading is a no-op.
-  const { error } = await getServiceClient()
-    .from("price_samples")
-    .upsert(
-      { price: snapshot.price, observed_at: snapshot.observedAt },
-      { onConflict: "observed_at", ignoreDuplicates: true },
-    );
-  if (error) console.error("tick: sample insert failed", error);
 }
 
 type TickStats = {
@@ -179,20 +169,19 @@ async function runTick(): Promise<NextResponse> {
     return NextResponse.json({ ok: true, ...stats });
   }
 
-  // One fetch feeds every subscription in this tick.
-  let snapshot: PriceSnapshot;
-  try {
-    snapshot = await fetchCurrentPrice();
-  } catch (error) {
-    // Leave next_run_at alone; the next tick a minute from now retries.
-    console.error("tick: price fetch failed", error);
+  // One reading feeds every subscription in this tick.
+  const snapshot: PriceSnapshot | null = await readFreshPrice();
+
+  // No fresh reading means the fetcher is down. Leave next_run_at alone so
+  // nobody's schedule advances, and send nothing rather than a stale price —
+  // the tick a minute from now picks up exactly where this one stopped.
+  if (!snapshot) {
+    console.warn("tick: no fresh price, skipping this round");
     return NextResponse.json(
       { ok: false, error: "price_unavailable", ...stats },
       { status: 503 },
     );
   }
-
-  await recordSample(snapshot);
 
   for (let i = 0; i < due.length; i += CONCURRENCY) {
     await Promise.allSettled(

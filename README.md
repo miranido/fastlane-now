@@ -11,19 +11,25 @@ Installable as a PWA, mobile-first, works on desktop too.
 ## How it works
 
 ```
-pg_cron (every minute)
-      │  POST /api/cron/tick  (x-cron-secret)
+  fetcher on an Israeli connection (every minute)
+      │  POST /api/price/ingest  (x-cron-secret)
       ▼
-  Next.js on Vercel ──── one fetch ────▶ fastlane.co.il page method
+  Next.js on Vercel ──▶ price_samples in Supabase
+      ▲
+      │  POST /api/cron/tick  (x-cron-secret)
+  pg_cron (every minute)
       │
-      │  fan out to every subscription whose next_run_at has passed
+      │  read latest price, fan out to every subscription now due
       ▼
   Web Push (VAPID) ──▶ service worker ──▶ notification
 ```
 
-The important part: **one price fetch per tick, no matter how many users**. The
-operator sees at most one request a minute from us — less than their own
-homepage, which polls every 20 seconds.
+The important part: **one price fetch per minute, no matter how many users**.
+The operator sees less traffic from us than from their own homepage, which
+polls every 20 seconds while open.
+
+Why the fetch happens on a machine in Israel rather than on Vercel is the next
+section — it's the one genuinely surprising thing about this project.
 
 ### The data source
 
@@ -42,43 +48,54 @@ unwraps all of that.
 
 If they ever change it, that one file is the only thing that breaks.
 
-### Why there's a Cloudflare Worker in the middle
+### Why the price is fetched from a machine in Israel
 
 The site is behind Cloudflare, which answers **403 to requests from cloud
 providers**. This isn't a header or fingerprint problem — the same fetch, with
-the same headers, behaves differently purely by source IP:
+the same headers, succeeds or fails purely by where it comes from:
 
 | Source | Result |
 | --- | --- |
-| Ordinary Israeli connection | 200 in ~60ms |
+| Ordinary Israeli connection | **200** in ~60ms |
 | Vercel (Frankfurt) | 403 |
 | Supabase Postgres egress (`pg_net`) | 403 |
+| Cloudflare Worker | 403 |
 
-Both 403s return Cloudflare's access-denied page. So the app can't call the
-endpoint from its own server — and it can't call it from the browser either:
-the endpoint sends no `Access-Control-*` headers and its `OPTIONS` preflight
-404s, which rules out any client-side or service-worker fetch.
+The browser can't do it either: the endpoint sends no `Access-Control-*`
+headers and its `OPTIONS` preflight 404s, so no client-side or service-worker
+fetch is possible.
 
-[`workers/price-proxy`](workers/price-proxy/index.js) is a small relay that
-makes the call from Cloudflare's own network, which has a Tel Aviv edge —
-responses come back stamped `x-cf-colo: TLV`. It is not an open proxy: the
-target URL is hard-coded and every request must present `PROXY_SECRET`.
+A Cloudflare Worker looks like it should help and doesn't, for a reason worth
+recording. Workers run at the edge nearest the *caller*, so one invoked from
+Vercel executed in Washington DC. Pinning it with a Durable Object
+`locationHint` doesn't fix it either — when a Worker fetches a host that is
+itself behind Cloudflare, Cloudflare forwards the **original visitor's IP** to
+the destination, so the relay is transparent to exactly the thing being
+filtered. (And "Middle East" as a Cloudflare region is emphatically not
+"Israel", which for a geo-filtering Israeli operator cuts the wrong way.)
 
-We identify honestly: `FastLaneNow/1.0` with a link to this repo, no browser
-impersonation. That User-Agent is served normally, so there's nothing to gain
-by pretending otherwise, and if the operator ever objects the contact path is
-right there in the request.
+So the one request that must come from Israel does:
+[`scripts/fetch-price.mjs`](scripts/fetch-price.mjs) runs once a minute on an
+ordinary Israeli connection and posts the reading to `/api/price/ingest`.
+Everything else stays serverless. The server never calls fastlane.co.il.
 
-Set `PRICE_PROXY_URL` and `PRICE_PROXY_SECRET` and the app routes through the
-relay; leave them unset and it calls the endpoint directly, which is what local
-development does from an Israeli connection.
+**When the fetcher stops, the app degrades honestly.** Readings older than
+three minutes are treated as no reading at all: the UI says the price is
+unavailable and the tick sends nothing, rather than pushing a stale price.
+When the fetcher comes back it resumes within a minute, unattended.
+
+We identify honestly — `FastLaneNow/1.0` with a link to this repo, no browser
+impersonation. That agent is served normally, so there's nothing to gain by
+pretending otherwise, and the operator has a contact path if it ever bothers
+them.
 
 ### Layout
 
 | Path | What it does |
 | --- | --- |
 | `app/[locale]/` | The single page. Hebrew at `/`, English at `/en`. |
-| `app/api/price` | Current price for the live display, CDN-cached 20s. |
+| `app/api/price` | Latest stored reading for the live display, CDN-cached 20s. |
+| `app/api/price/ingest` | Where the Israeli fetcher posts readings. Secret-guarded. |
 | `app/api/subscribe` | Creates a session and sends the confirmation push. |
 | `app/api/unsubscribe` | Stops a session (needs id + stop token). |
 | `app/api/session` | Lets a returning device check if its session is still live. |
@@ -87,6 +104,8 @@ development does from an Israeli connection.
 | `supabase/schema.sql` | Tables, indexes, RLS lockdown. |
 | `supabase/cron.sql` | The per-minute schedule. |
 | `public/sw.js` | Service worker: push, notification click, offline shell. |
+| `scripts/fetch-price.mjs` | The once-a-minute fetcher. Runs in Israel, not on Vercel. |
+| `scripts/com.fastlane-now.fetcher.plist` | launchd job that keeps it running on macOS. |
 | `scripts/make_icons.py` | Regenerates every icon from one definition. |
 
 ---

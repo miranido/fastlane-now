@@ -6,7 +6,7 @@ import {
   type IntervalMinutes,
 } from "@/lib/config";
 import { buildStartNotification, deliver } from "@/lib/notify";
-import { fetchCurrentPrice } from "@/lib/price";
+import { readFreshPrice } from "@/lib/price-store";
 import { isAllowedPushEndpoint } from "@/lib/push-endpoint";
 import { getServiceClient, type SubscriptionRow } from "@/lib/supabase";
 
@@ -62,10 +62,10 @@ export async function POST(request: Request) {
   const onlyOnChange = body.onlyOnChange === true;
 
   // The confirmation doubles as proof that notifications actually work, so
-  // fetch the price up front — but don't fail the subscription over it.
+  // read the price up front — but don't fail the subscription over it.
   let snapshot = null;
   try {
-    snapshot = await fetchCurrentPrice();
+    snapshot = await readFreshPrice();
   } catch {
     snapshot = null;
   }
