@@ -102,7 +102,8 @@ bash scripts/check-upstream.sh   # 200 → use it. 403 → try elsewhere.
 
 | Where | Why |
 | --- | --- |
-| A VPS in an Israeli region — Kamatera, Vultr Tel Aviv, AWS `il-central-1`, GCP `me-west1`, Oracle Jerusalem | The obvious answer, and cheap: the smallest instance any of them sells is oversized for one POST a minute. Pick on hourly billing and signup friction, not specs. |
+| A VPS in an Israeli region — Kamatera, Vultr Tel Aviv, AWS `il-central-1`, GCP `me-west1` | The obvious answer, and cheap: the smallest instance any of them sells is oversized for one POST a minute. Pick on hourly billing and signup friction, not specs. |
+| Oracle's Always Free tier in Israel Central (Jerusalem) | Free forever rather than a trial, and Jerusalem qualifies. Two conditions: pick Israel Central as the **home region at signup** — Always Free only exists there and it can't be changed afterwards — and convert the account to Pay As You Go. Oracle reclaims Always Free instances whose 95th-percentile CPU stays under 20% for 7 days, which this workload will never clear; PAYG exempts you and still bills nothing inside the free limits. |
 | A Raspberry Pi or old laptop on a home connection | Zero monthly cost, and the same class of connection as the Mac that runs it today — so it works regardless of which rule Cloudflare is actually applying. |
 
 Prefer a provider that bills by the hour, so a machine that turns out to be
