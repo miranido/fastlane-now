@@ -49,7 +49,46 @@ type SessionView = {
 
 type StoredCredentials = { id: string; stopToken: string };
 
-type NoticeState = { tone: NoticeTone; title?: string; body?: string } | null;
+type NoticeState = {
+  tone: NoticeTone;
+  title?: string;
+  body?: string;
+  /** Technical cause, shown verbatim under an error. */
+  detail?: string;
+} | null;
+
+type SubscribeResponse = {
+  id: string;
+  stopToken: string;
+  intervalMinutes: number;
+  onlyOnChange: boolean;
+  startedAt: string;
+  expiresAt: string;
+  nextRunAt: string;
+};
+
+/**
+ * "We couldn't enable notifications" on its own is unactionable — for the user
+ * and for us. Every failure carries a short technical cause alongside it.
+ */
+function describeError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.name && error.name !== "Error"
+      ? `${error.name}: ${error.message}`
+      : error.message;
+  }
+  return String(error);
+}
+
+/** The `error` field of a failed API response, when there is one. */
+async function readErrorCode(response: Response): Promise<string | null> {
+  try {
+    const body = (await response.json()) as { error?: unknown };
+    return typeof body.error === "string" ? body.error : null;
+  } catch {
+    return null;
+  }
+}
 
 /* --- push capability, as an external store ---------------------------------
  * It depends on browser APIs, so it can't be computed during SSR — and it can
@@ -250,6 +289,77 @@ export function PriceApp({ locale }: { locale: Locale }) {
   }, [session, refreshSession]);
 
   // --- actions ------------------------------------------------------------
+  function failed(detail: string, error?: unknown) {
+    // On a phone the console is the only place this can be read back, so log
+    // it too rather than only rendering the summary.
+    console.error("[fastlane] notifications:", detail, error);
+    setNotice({
+      tone: "error",
+      title: t("push.errorTitle"),
+      body: t("push.errorBody"),
+      detail,
+    });
+  }
+
+  /**
+   * One attempt at the subscribe handshake. Separated out so a rejected push
+   * endpoint can be retried with a freshly minted one.
+   */
+  async function requestSession(
+    registration: ServiceWorkerRegistration,
+    fresh: boolean,
+  ): Promise<
+    | { ok: true; data: SubscribeResponse }
+    | { ok: false; detail: string; endpointDead: boolean }
+  > {
+    let subscription: PushSubscriptionJSON;
+    try {
+      subscription = await subscribeToPush(registration, VAPID_PUBLIC_KEY, {
+        fresh,
+      });
+    } catch (error) {
+      return {
+        ok: false,
+        detail: `push subscribe — ${describeError(error)}`,
+        endpointDead: false,
+      };
+    }
+
+    let response: Response;
+    try {
+      response = await fetch("/api/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subscription,
+          intervalMinutes: interval,
+          durationMinutes: duration,
+          onlyOnChange,
+          locale,
+        }),
+      });
+    } catch (error) {
+      return {
+        ok: false,
+        detail: `network — ${describeError(error)}`,
+        endpointDead: false,
+      };
+    }
+
+    if (!response.ok) {
+      const code = await readErrorCode(response);
+      return {
+        ok: false,
+        detail: `server ${response.status}${code ? ` ${code}` : ""}`,
+        // The push service refused the confirmation, so the endpoint the
+        // browser handed us is already dead — worth one go with a new one.
+        endpointDead: code === "push_rejected",
+      };
+    }
+
+    return { ok: true, data: (await response.json()) as SubscribeResponse };
+  }
+
   async function handleStart() {
     setNotice(null);
 
@@ -264,7 +374,14 @@ export function PriceApp({ locale }: { locale: Locale }) {
 
     setBusy(true);
     try {
-      const permission = await Notification.requestPermission();
+      let permission: NotificationPermission;
+      try {
+        permission = await Notification.requestPermission();
+      } catch (error) {
+        failed(`permission — ${describeError(error)}`, error);
+        return;
+      }
+
       if (permission !== "granted") {
         setNotice({
           tone: "warn",
@@ -274,32 +391,23 @@ export function PriceApp({ locale }: { locale: Locale }) {
         return;
       }
 
-      const registration = await registerServiceWorker();
-      const subscription = await subscribeToPush(registration, VAPID_PUBLIC_KEY);
+      let registration: ServiceWorkerRegistration;
+      try {
+        registration = await registerServiceWorker();
+      } catch (error) {
+        failed(`service worker — ${describeError(error)}`, error);
+        return;
+      }
 
-      const response = await fetch("/api/subscribe", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          subscription,
-          intervalMinutes: interval,
-          durationMinutes: duration,
-          onlyOnChange,
-          locale,
-        }),
-      });
-
-      if (!response.ok) throw new Error(`subscribe failed: ${response.status}`);
-
-      const data = (await response.json()) as {
-        id: string;
-        stopToken: string;
-        intervalMinutes: number;
-        onlyOnChange: boolean;
-        startedAt: string;
-        expiresAt: string;
-        nextRunAt: string;
-      };
+      let outcome = await requestSession(registration, false);
+      if (!outcome.ok && outcome.endpointDead) {
+        outcome = await requestSession(registration, true);
+      }
+      if (!outcome.ok) {
+        failed(outcome.detail);
+        return;
+      }
+      const data = outcome.data;
 
       try {
         window.localStorage.setItem(
@@ -322,12 +430,8 @@ export function PriceApp({ locale }: { locale: Locale }) {
       });
       setNow(Date.now());
       setNotice({ tone: "success", body: t("push.enabledToast") });
-    } catch {
-      setNotice({
-        tone: "error",
-        title: t("push.errorTitle"),
-        body: t("push.errorBody"),
-      });
+    } catch (error) {
+      failed(describeError(error), error);
     } finally {
       setBusy(false);
     }
@@ -347,12 +451,8 @@ export function PriceApp({ locale }: { locale: Locale }) {
       clearStored();
       setSession(null);
       setNotice({ tone: "info", body: t("session.stopped") });
-    } catch {
-      setNotice({
-        tone: "error",
-        title: t("push.errorTitle"),
-        body: t("push.errorBody"),
-      });
+    } catch (error) {
+      failed(describeError(error), error);
     } finally {
       setBusy(false);
     }
@@ -488,6 +588,14 @@ export function PriceApp({ locale }: { locale: Locale }) {
       {notice ? (
         <Notice tone={notice.tone} title={notice.title}>
           {notice.body}
+          {notice.detail ? (
+            <p className="mt-2 text-xs opacity-70">
+              {t("push.errorDetailLabel")}{" "}
+              <span dir="ltr" className="break-all font-mono">
+                {notice.detail}
+              </span>
+            </p>
+          ) : null}
         </Notice>
       ) : null}
 

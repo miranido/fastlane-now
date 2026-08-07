@@ -57,7 +57,8 @@
     "deniedTitle": "Notifications are blocked",
     "deniedBody": "You blocked notifications for this site earlier. To fix: browser settings → site permissions → notifications → allow.",
     "errorTitle": "Couldn't turn on notifications",
-    "errorBody": "Give it another try. If it keeps failing, check that notifications are allowed in your browser settings."
+    "errorBody": "Give it another try. If it keeps failing, check that notifications are allowed in your browser settings.",
+    "errorDetailLabel": "Details:"
   },
   "ios": {
     "title": "One step first — add it to your home screen",

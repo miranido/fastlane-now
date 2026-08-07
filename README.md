@@ -192,6 +192,15 @@ the home screen. The app detects iOS Safari and shows the three-step
 instructions instead of the enable button — without that, people tap "enable"
 and silently get nothing. Android and desktop have no such restriction.
 
+**When "enable" fails, it says why.** The error notice carries the exact cause
+under it — `push subscribe — AbortError: …` (the browser or push service refused
+to register), `server 500 storage_failed` (the database write), `server 400
+push_rejected` (the push service rejected the confirmation message), `network —
+…` (the request never landed). The same line goes to the console. A rejected
+endpoint is retried once with a freshly minted subscription, because Safari
+keeps handing back endpoints Apple has already forgotten — without that, every
+retry fails identically forever.
+
 **One session per device.** The push endpoint is unique in the database, so
 starting a new session replaces the old one rather than stacking notifications.
 

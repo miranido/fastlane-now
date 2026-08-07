@@ -63,10 +63,17 @@ function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
 /**
  * Reuses an existing push subscription when there is one; the browser only
  * hands out fresh keys if none exists or the VAPID key changed.
+ *
+ * Pass `fresh` to discard whatever the browser has cached and mint a new
+ * subscription. The cached one can outlive its registration at the push
+ * service — Safari in particular keeps handing back an endpoint that Apple has
+ * already forgotten — and without this every retry would resend the same dead
+ * endpoint and fail identically.
  */
 export async function subscribeToPush(
   registration: ServiceWorkerRegistration,
   vapidPublicKey: string,
+  { fresh = false }: { fresh?: boolean } = {},
 ): Promise<PushSubscriptionJSON> {
   const applicationServerKey = urlBase64ToUint8Array(vapidPublicKey);
   const existing = await registration.pushManager.getSubscription();
@@ -74,6 +81,7 @@ export async function subscribeToPush(
   if (existing) {
     const currentKey = existing.options?.applicationServerKey;
     const sameKey =
+      !fresh &&
       currentKey &&
       new Uint8Array(currentKey).every((b, i) => b === applicationServerKey[i]);
     if (sameKey) return existing.toJSON();
