@@ -102,6 +102,7 @@ them.
 | `app/api/cron/tick` | The heartbeat. Secret-guarded. |
 | `lib/notify/` | Channel abstraction: `webpush.ts` is live, `telegram.ts` is ready. |
 | `supabase/schema.sql` | Tables, indexes, RLS lockdown. |
+| `supabase/migrations/` | Changes to apply to databases created before them. |
 | `supabase/cron.sql` | The per-minute schedule. |
 | `public/sw.js` | Service worker: push, notification click, offline shell. |
 | `scripts/fetch-price.mjs` | The once-a-minute fetcher. Runs in Israel, not on Vercel. |
@@ -132,6 +133,10 @@ Then, in the **SQL Editor**:
    on and no policies, so only the service role can touch them.
 2. Leave [`supabase/cron.sql`](supabase/cron.sql) for after the first deploy —
    it needs the live URL.
+
+A database created from the current `schema.sql` needs nothing from
+[`supabase/migrations/`](supabase/migrations) — those files exist for databases
+built before them, and each one says what it fixes and is safe to re-run.
 
 From **Project Settings → API**, copy the project URL and the **service role**
 key (not the anon key).
@@ -194,12 +199,23 @@ and silently get nothing. Android and desktop have no such restriction.
 
 **When "enable" fails, it says why.** The error notice carries the exact cause
 under it — `push subscribe — AbortError: …` (the browser or push service refused
-to register), `server 500 storage_failed` (the database write), `server 400
-push_rejected` (the push service rejected the confirmation message), `network —
-…` (the request never landed). The same line goes to the console. A rejected
+to register), `server 500 storage_failed (42P10)` (the database write, with
+Postgres' own SQLSTATE), `server 400 push_rejected` (the push service rejected
+the confirmation message), `network — …` (the request never landed). The same
+line goes to the console. A rejected
 endpoint is retried once with a freshly minted subscription, because Safari
 keeps handing back endpoints Apple has already forgotten — without that, every
 retry fails identically forever.
+
+**The upsert indexes must not be partial.** `subscriptions_endpoint_key` started
+life as `unique (endpoint) where endpoint is not null`, which looks tidier and
+silently breaks every subscribe: Postgres only infers a *partial* unique index
+for `ON CONFLICT` when the statement repeats the predicate, and PostgREST — what
+supabase-js `.upsert()` talks to — never emits one, so the insert dies with
+SQLSTATE 42P10 and the app returns `storage_failed`. The predicate was
+pointless anyway; a plain unique index already allows any number of NULLs.
+`price_samples` was unaffected because its unique index was never partial, which
+is exactly why the price kept working while notifications didn't.
 
 **One session per device.** The push endpoint is unique in the database, so
 starting a new session replaces the old one rather than stacking notifications.

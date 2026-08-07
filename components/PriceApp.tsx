@@ -80,13 +80,18 @@ function describeError(error: unknown): string {
   return String(error);
 }
 
-/** The `error` field of a failed API response, when there is one. */
-async function readErrorCode(response: Response): Promise<string | null> {
+/** The `error` code of a failed API response, and whatever caused it. */
+async function readApiError(
+  response: Response,
+): Promise<{ code: string | null; cause: string | null }> {
   try {
-    const body = (await response.json()) as { error?: unknown };
-    return typeof body.error === "string" ? body.error : null;
+    const body = (await response.json()) as { error?: unknown; cause?: unknown };
+    return {
+      code: typeof body.error === "string" ? body.error : null,
+      cause: typeof body.cause === "string" ? body.cause : null,
+    };
   } catch {
-    return null;
+    return { code: null, cause: null };
   }
 }
 
@@ -347,10 +352,12 @@ export function PriceApp({ locale }: { locale: Locale }) {
     }
 
     if (!response.ok) {
-      const code = await readErrorCode(response);
+      const { code, cause } = await readApiError(response);
       return {
         ok: false,
-        detail: `server ${response.status}${code ? ` ${code}` : ""}`,
+        detail: `server ${response.status}${code ? ` ${code}` : ""}${
+          cause ? ` (${cause})` : ""
+        }`,
         // The push service refused the confirmation, so the endpoint the
         // browser handed us is already dead — worth one go with a new one.
         endpointDead: code === "push_rejected",

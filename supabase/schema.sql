@@ -54,13 +54,19 @@ create table if not exists public.subscriptions (
 );
 
 -- One session per device, so re-subscribing replaces rather than duplicates.
+--
+-- These must NOT be partial indexes. Postgres can only infer a partial unique
+-- index for ON CONFLICT when the statement repeats the index predicate, and
+-- PostgREST (so supabase-js .upsert) never emits one — the insert dies with
+-- "there is no unique or exclusion constraint matching the ON CONFLICT
+-- specification" and every subscribe attempt 500s. A `where col is not null`
+-- predicate bought nothing anyway: a plain unique index already allows any
+-- number of NULLs, since NULL is never equal to NULL.
 create unique index if not exists subscriptions_endpoint_key
-  on public.subscriptions (endpoint)
-  where endpoint is not null;
+  on public.subscriptions (endpoint);
 
 create unique index if not exists subscriptions_telegram_key
-  on public.subscriptions (telegram_chat_id)
-  where telegram_chat_id is not null;
+  on public.subscriptions (telegram_chat_id);
 
 -- The tick query: "give me everything due right now".
 create index if not exists subscriptions_due_idx

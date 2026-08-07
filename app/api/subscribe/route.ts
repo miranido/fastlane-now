@@ -106,7 +106,13 @@ export async function POST(request: Request) {
 
   if (error || !data) {
     console.error("subscribe: upsert failed", error);
-    return NextResponse.json({ error: "storage_failed" }, { status: 500 });
+    return NextResponse.json(
+      // Postgres' own five-character SQLSTATE, and nothing else: enough to tell
+      // a missing table from a constraint violation without leaking row data
+      // or schema details to whoever is calling.
+      { error: "storage_failed", cause: error?.code ?? null },
+      { status: 500 },
+    );
   }
 
   if (snapshot) {
