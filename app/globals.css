@@ -1,0 +1,139 @@
+@import "tailwindcss";
+
+@theme {
+  /* Daylight palette: warm paper, deep-blue primary, road-sign orange. */
+  --color-paper: #f6f3ec;
+  --color-paper-deep: #ece7dc;
+  --color-card: #ffffff;
+
+  --color-navy: #123a63;
+  --color-navy-deep: #0c2846;
+  --color-navy-soft: #4a6b92;
+
+  --color-tangerine: #e8721f;
+  --color-tangerine-soft: #f59b4b;
+
+  --color-ink: #16283f;
+  --color-muted: #5c7089;
+  --color-faint: #8496a9;
+
+  --color-line: rgba(18, 58, 99, 0.12);
+  --color-line-strong: rgba(18, 58, 99, 0.28);
+
+  --color-success: #14804f;
+  --color-danger: #c0392b;
+
+  --radius-card: 1.5rem;
+}
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  background:
+    /* Warm daylight from above. */
+    radial-gradient(
+      130% 60% at 50% -15%,
+      rgba(232, 114, 31, 0.14) 0%,
+      rgba(232, 114, 31, 0) 62%
+    ),
+    radial-gradient(
+      100% 55% at 90% 5%,
+      rgba(18, 58, 99, 0.08) 0%,
+      rgba(18, 58, 99, 0) 60%
+    ),
+    var(--color-paper);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+  /* Keep content clear of the iPhone notch and home indicator once installed. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+/* Faint paper grain, so the off-white reads as stock rather than flat #fff. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.055'/%3E%3C/svg%3E");
+}
+
+/* Inputs below 16px make iOS Safari zoom the viewport on focus. */
+input,
+select,
+textarea,
+button {
+  font-size: max(1rem, inherit);
+}
+
+@utility card {
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-line);
+  background: var(--color-card);
+  box-shadow:
+    0 1px 2px rgba(18, 58, 99, 0.04),
+    0 12px 28px -18px rgba(18, 58, 99, 0.28);
+}
+
+/* The quiet pulse next to "updates automatically". */
+@keyframes live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.3;
+    transform: scale(0.8);
+  }
+}
+
+.live-dot {
+  animation: live-pulse 2.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-dot {
+    animation: none;
+  }
+  * {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Tabular figures stop the big price and the countdown from jittering. */
+.numeric {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* A lane divider: two hairlines with dashes between them. Used as a rule. */
+.lane-rule {
+  height: 10px;
+  background-image:
+    linear-gradient(
+      to right,
+      var(--color-line) 0 60%,
+      transparent 60% 100%
+    ),
+    linear-gradient(var(--color-line), var(--color-line)),
+    linear-gradient(var(--color-line), var(--color-line));
+  background-size:
+    22px 2px,
+    100% 1px,
+    100% 1px;
+  background-position:
+    center center,
+    left top,
+    left bottom;
+  background-repeat: repeat-x, no-repeat, no-repeat;
+}

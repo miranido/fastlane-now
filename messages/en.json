@@ -1,0 +1,83 @@
+{
+  "meta": {
+    "title": "What does the Fast Lane cost right now?",
+    "description": "Get the Tel Aviv Fast Lane toll price pushed to your phone every few minutes. Free, no sign-up."
+  },
+  "app": {
+    "name": "Fast Lane Now",
+    "tagline": "The Fast Lane toll price, straight to your phone"
+  },
+  "price": {
+    "heading": "Price right now",
+    "currency": "₪",
+    "updated": "Updated {time}",
+    "loading": "Loading price…",
+    "error": "Couldn't fetch the price right now",
+    "retry": "Try again",
+    "live": "Updates automatically"
+  },
+  "form": {
+    "intervalLabel": "Update me every",
+    "durationLabel": "For",
+    "minutes": "{count, plural, one {1 minute} other {# minutes}}",
+    "duration": {
+      "30": "30 minutes",
+      "60": "1 hour",
+      "120": "2 hours"
+    },
+    "onlyOnChange": {
+      "label": "Only when the price changes",
+      "hint": "No repeat alerts for the same price"
+    },
+    "submit": "Turn on alerts",
+    "submitting": "Starting…",
+    "summary": "We'll notify you every {interval}, for {duration}."
+  },
+  "session": {
+    "activeTitle": "Tracking is on",
+    "nextUpdate": "Next update in {countdown}",
+    "nextUpdateNow": "Next update any moment now",
+    "endsAt": "Tracking ends at {time}",
+    "everyInterval": "Every {interval}",
+    "onlyOnChangeOn": "Only when the price changes",
+    "stop": "Stop tracking",
+    "stopping": "Stopping…",
+    "stopped": "Tracking stopped. Start again whenever you like.",
+    "expired": "That round is over. Want another one?"
+  },
+  "push": {
+    "enabledToast": "You're set — we sent a test notification.",
+    "unsupportedTitle": "This browser doesn't support notifications",
+    "unsupportedBody": "Try Chrome, Edge, or an up-to-date Safari — or just leave this page open and watch the price here.",
+    "deniedTitle": "Notifications are blocked",
+    "deniedBody": "You blocked notifications for this site earlier. To fix: browser settings → site permissions → notifications → allow.",
+    "errorTitle": "Couldn't turn on notifications",
+    "errorBody": "Give it another try. If it keeps failing, check that notifications are allowed in your browser settings."
+  },
+  "ios": {
+    "title": "One step first — add it to your home screen",
+    "body": "On iPhone, notifications only work once the site is installed as an app. Takes five seconds:",
+    "step1": "Tap the Share button at the bottom of Safari",
+    "step2": "Choose \"Add to Home Screen\"",
+    "step3": "Open the new app from your home screen and turn on alerts",
+    "dismiss": "Got it"
+  },
+  "notify": {
+    "title": "Fast Lane — {price} ₪",
+    "body": "Updated {time}",
+    "bodyChanged": "Updated {time} · was {previous} ₪",
+    "startTitle": "Tracking on — {price} ₪ right now",
+    "startBody": "We'll update you every {interval}, until {until}",
+    "finalBody": "Updated {time} · last update of this round"
+  },
+  "footer": {
+    "sourceNote": "Prices come straight from the official Fast Lane site and are shown as-is.",
+    "disclaimer": "An independent free service, not affiliated with the Fast Lane operator. Only they set the final price.",
+    "officialSite": "Official site",
+    "safety": "Don't use this app while driving."
+  },
+  "language": {
+    "switch": "עברית",
+    "label": "Language"
+  }
+}
