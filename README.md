@@ -1,4 +1,4 @@
-# נתיב עכשיו — Fast Lane Now
+# הנתיב המהיר עכשיו — Fast Lane Now
 
 A free, no-signup web app that pushes the current [Fast Lane](https://fastlane.co.il/)
 toll price to your phone on an interval you choose — every minute to every half
