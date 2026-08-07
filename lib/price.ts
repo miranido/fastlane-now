@@ -60,30 +60,45 @@ function formatInIsrael(date: Date, options: Intl.DateTimeFormatOptions) {
 }
 
 /**
- * The site sits behind Cloudflare, which scores the whole header fingerprint,
- * not just the IP. A bare server-side fetch — no Accept-Language, no
- * sec-fetch-*, and a self-identifying bot User-Agent — looks nothing like the
- * XHR the homepage actually sends, and gets challenged when it arrives from a
- * datacenter range. These mirror the real request.
+ * We identify ourselves honestly rather than impersonating a browser. This
+ * exact User-Agent is served normally from an ordinary connection, so there's
+ * nothing to gain by pretending to be Chrome — and a contact URL means the
+ * operator can find us if this ever bothers them.
  */
-const BROWSER_HEADERS: Record<string, string> = {
+const UPSTREAM_HEADERS: Record<string, string> = {
   "Content-Type": "application/json; charset=UTF-8",
   Accept: "application/json, text/javascript, */*; q=0.01",
-  "Accept-Language": "he-IL,he;q=0.9,en-US;q=0.8,en;q=0.7",
-  "User-Agent":
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-  Origin: "https://fastlane.co.il",
-  Referer: "https://fastlane.co.il/",
+  "Accept-Language": "he-IL,he;q=0.9,en;q=0.8",
   "X-Requested-With": "XMLHttpRequest",
-  "Sec-Fetch-Site": "same-origin",
-  "Sec-Fetch-Mode": "cors",
-  "Sec-Fetch-Dest": "empty",
+  Referer: "https://fastlane.co.il/",
+  "User-Agent":
+    "Mozilla/5.0 (compatible; FastLaneNow/1.0; +https://github.com/miranido/fastlane-now)",
 };
 
+/**
+ * Cloudflare answers 403 to this endpoint from cloud providers — Vercel and
+ * Supabase are both refused, an ordinary Israeli connection is not. When
+ * PRICE_PROXY_URL is set we go through a relay that can reach it; otherwise we
+ * call it directly, which is what local development does.
+ */
 function requestPrice(): Promise<Response> {
+  const proxyUrl = process.env.PRICE_PROXY_URL;
+
+  if (proxyUrl) {
+    return fetch(proxyUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-proxy-secret": process.env.PRICE_PROXY_SECRET ?? "",
+      },
+      cache: "no-store",
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  }
+
   return fetch(PRICE_ENDPOINT, {
     method: "POST",
-    headers: BROWSER_HEADERS,
+    headers: UPSTREAM_HEADERS,
     body: "",
     cache: "no-store",
     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),

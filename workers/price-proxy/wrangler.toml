@@ -1,0 +1,7 @@
+name = "fastlane-price-proxy"
+main = "index.js"
+compatibility_date = "2026-08-01"
+
+# PROXY_SECRET is intentionally not set here — it's a secret, not a plain var.
+# Set it with:  npx wrangler secret put PROXY_SECRET
+# or in the dashboard under Settings → Variables → Add (encrypt).
