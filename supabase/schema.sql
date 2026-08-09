@@ -22,6 +22,19 @@ create table if not exists public.subscriptions (
   telegram_chat_id   text,
 
   locale             text not null default 'he' check (locale in ('he', 'en')),
+
+  -- What this session is waiting for.
+  --   'interval' — a price every interval_minutes, the original behaviour.
+  --   'target'   — one alert once the price holds at or under target_price.
+  --   'drop'     — one alert once the price has been falling and staying down.
+  -- Watches are evaluated every minute (interval_minutes = 1) and end when
+  -- they fire, so the two watch modes never send twice.
+  mode               text not null default 'interval'
+                       check (mode in ('interval', 'target', 'drop')),
+  target_price       numeric check (target_price > 0),
+  -- How long the condition must hold before it counts. Null for 'interval'.
+  stability_minutes  int check (stability_minutes between 1 and 60),
+
   interval_minutes   int  not null check (interval_minutes between 1 and 60),
   only_on_change     boolean not null default false,
   active             boolean not null default true,
@@ -50,6 +63,12 @@ create table if not exists public.subscriptions (
   ),
   constraint subscriptions_telegram_fields check (
     channel <> 'telegram' or telegram_chat_id is not null
+  ),
+  constraint subscriptions_target_fields check (
+    mode <> 'target' or target_price is not null
+  ),
+  constraint subscriptions_watch_fields check (
+    mode = 'interval' or stability_minutes is not null
   )
 );
 
@@ -84,6 +103,13 @@ create table if not exists public.price_samples (
   id          bigserial primary key,
   price       numeric not null,
   observed_at timestamptz not null,
+  -- The last time the fetcher saw this price still standing. Because a row is
+  -- only written when the operator's stamp changes, one row can cover an hour
+  -- of unchanged price — and without this column there is no way to tell that
+  -- apart from an hour when the fetcher was down. Price watches need the
+  -- difference: "under 20 for ten minutes" is a claim about what we watched,
+  -- not about what we happened to store.
+  last_seen_at timestamptz not null default now(),
   created_at  timestamptz not null default now()
 );
 

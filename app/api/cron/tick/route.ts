@@ -1,8 +1,20 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
-import { buildPriceNotification, deliver } from "@/lib/notify";
+import { isWatchMode } from "@/lib/config";
+import {
+  buildPriceNotification,
+  buildWatchEndedNotification,
+  buildWatchHitNotification,
+  deliver,
+} from "@/lib/notify";
 import type { PriceSnapshot } from "@/lib/price";
-import { readFreshPrice } from "@/lib/price-store";
+import {
+  descentHeldSince,
+  heldLongEnough,
+  targetHeldSince,
+  type PriceSample,
+} from "@/lib/price-history";
+import { readFreshPrice, readRecentSamples } from "@/lib/price-store";
 import { getServiceClient, type SubscriptionRow } from "@/lib/supabase";
 
 export const runtime = "nodejs";
@@ -48,12 +60,146 @@ type TickStats = {
   due: number;
   sent: number;
   suppressed: number;
+  /** Watches whose condition came true this tick. */
+  triggered: number;
   failed: number;
   deactivated: number;
   expired: number;
 };
 
-async function handleSubscription(
+/**
+ * The common bookkeeping after a delivery attempt, whatever prompted it.
+ *
+ * The two "is this the end" flags are separate because they aren't the same
+ * question. A watch that fires is finished — but only if the alert actually
+ * went out. When the push service blips on the one notification the user was
+ * waiting for, the session has to survive to try again next minute, and the
+ * condition it fired on will almost certainly still be true.
+ */
+function applyOutcome(
+  outcome: Awaited<ReturnType<typeof deliver>>,
+  row: SubscriptionRow,
+  update: Partial<SubscriptionRow> & { updated_at: string },
+  snapshot: PriceSnapshot,
+  now: number,
+  ending: { onSuccess: boolean; onFailure: boolean },
+  stats: TickStats,
+) {
+  if (outcome.status === "sent") {
+    stats.sent += 1;
+    update.last_price = snapshot.price;
+    update.last_notified_at = new Date(now).toISOString();
+    update.notifications_sent = row.notifications_sent + 1;
+    update.failure_count = 0;
+    if (ending.onSuccess) {
+      update.active = false;
+      stats.deactivated += 1;
+    }
+  } else if (outcome.status === "gone") {
+    stats.deactivated += 1;
+    update.active = false;
+  } else {
+    stats.failed += 1;
+    const failures = row.failure_count + 1;
+    update.failure_count = failures;
+    if (failures >= MAX_FAILURES || ending.onFailure) {
+      update.active = false;
+      stats.deactivated += 1;
+    }
+    console.warn(`tick: delivery failed for ${row.id}: ${outcome.reason}`);
+  }
+}
+
+/**
+ * A price watch: silent until the thing the user asked about has been true for
+ * long enough, then one notification and the session is over.
+ *
+ * Firing ends the watch rather than re-arming it. The question was "tell me
+ * when I can take the road" — once told, they're either on it or they aren't,
+ * and a second alert five minutes later helps nobody.
+ */
+async function handleWatch(
+  row: SubscriptionRow,
+  snapshot: PriceSnapshot,
+  samples: PriceSample[],
+  now: number,
+  stats: TickStats,
+) {
+  const supabase = getServiceClient();
+  const expiresAt = new Date(row.expires_at).getTime();
+  const nextRunAt = advance(
+    new Date(row.next_run_at),
+    row.interval_minutes,
+    now,
+  );
+  const isFinal = nextRunAt.getTime() > expiresAt;
+  const window = row.stability_minutes ?? 0;
+
+  const update: Partial<SubscriptionRow> & { updated_at: string } = {
+    next_run_at: nextRunAt.toISOString(),
+    updated_at: new Date(now).toISOString(),
+  };
+
+  let hit = false;
+  let fromPrice: number | null = null;
+
+  if (row.mode === "target" && row.target_price !== null) {
+    hit = heldLongEnough(
+      targetHeldSince(samples, Number(row.target_price), now),
+      now,
+      window,
+    );
+  } else if (row.mode === "drop") {
+    const descent = descentHeldSince(samples, now);
+    hit = heldLongEnough(descent?.since ?? null, now, window);
+    fromPrice = descent?.from ?? null;
+  }
+
+  // Still waiting, and there's another tick to wait in.
+  if (!hit && !isFinal) {
+    stats.suppressed += 1;
+    await supabase.from("subscriptions").update(update).eq("id", row.id);
+    return;
+  }
+
+  const mode = row.mode as "target" | "drop";
+  const payload = hit
+    ? buildWatchHitNotification({
+        locale: row.locale,
+        snapshot,
+        mode,
+        targetPrice: row.target_price === null ? null : Number(row.target_price),
+        fromPrice,
+        stabilityMinutes: window,
+      })
+    : // Out of time without the condition ever holding. Say so, rather than
+      // leaving someone to wonder whether the watch is still running.
+      buildWatchEndedNotification({
+        locale: row.locale,
+        snapshot,
+        mode,
+        targetPrice: row.target_price === null ? null : Number(row.target_price),
+      });
+
+  if (hit) stats.triggered += 1;
+
+  const outcome = await deliver(row, payload);
+  applyOutcome(
+    outcome,
+    row,
+    update,
+    snapshot,
+    now,
+    // A delivered alert ends the watch even mid-session: there's nothing left
+    // to wait for. A failed one only ends it if the session was over anyway.
+    { onSuccess: hit || isFinal, onFailure: isFinal },
+    stats,
+  );
+
+  await supabase.from("subscriptions").update(update).eq("id", row.id);
+}
+
+async function handleInterval(
   row: SubscriptionRow,
   snapshot: PriceSnapshot,
   now: number,
@@ -98,31 +244,37 @@ async function handleSubscription(
     }),
   );
 
-  if (outcome.status === "sent") {
-    stats.sent += 1;
-    update.last_price = snapshot.price;
-    update.last_notified_at = new Date(now).toISOString();
-    update.notifications_sent = row.notifications_sent + 1;
-    update.failure_count = 0;
-    if (isFinal) {
-      update.active = false;
-      stats.deactivated += 1;
-    }
-  } else if (outcome.status === "gone") {
-    stats.deactivated += 1;
-    update.active = false;
-  } else {
-    stats.failed += 1;
-    const failures = row.failure_count + 1;
-    update.failure_count = failures;
-    if (failures >= MAX_FAILURES || isFinal) {
-      update.active = false;
-      stats.deactivated += 1;
-    }
-    console.warn(`tick: delivery failed for ${row.id}: ${outcome.reason}`);
-  }
+  applyOutcome(
+    outcome,
+    row,
+    update,
+    snapshot,
+    now,
+    { onSuccess: isFinal, onFailure: isFinal },
+    stats,
+  );
 
   await supabase.from("subscriptions").update(update).eq("id", row.id);
+}
+
+/**
+ * Watches need price history; interval alerts only need the current reading.
+ * `samples` is null when history couldn't be read, in which case watches are
+ * left entirely untouched — next_run_at included — so the next tick picks up
+ * where this one stopped rather than skipping a minute of the window.
+ */
+async function handleSubscription(
+  row: SubscriptionRow,
+  snapshot: PriceSnapshot,
+  samples: PriceSample[] | null,
+  now: number,
+  stats: TickStats,
+) {
+  if (isWatchMode(row.mode)) {
+    if (!samples) return;
+    return handleWatch(row, snapshot, samples, now, stats);
+  }
+  return handleInterval(row, snapshot, now, stats);
 }
 
 async function runTick(): Promise<NextResponse> {
@@ -134,6 +286,7 @@ async function runTick(): Promise<NextResponse> {
     due: 0,
     sent: 0,
     suppressed: 0,
+    triggered: 0,
     failed: 0,
     deactivated: 0,
     expired: 0,
@@ -183,11 +336,21 @@ async function runTick(): Promise<NextResponse> {
     );
   }
 
+  // One history read feeds every watch in this tick, and only if there is one.
+  let samples: PriceSample[] | null = null;
+  if (due.some((row) => isWatchMode(row.mode))) {
+    try {
+      samples = await readRecentSamples();
+    } catch (error) {
+      console.error("tick: price history read failed", error);
+    }
+  }
+
   for (let i = 0; i < due.length; i += CONCURRENCY) {
     await Promise.allSettled(
       due
         .slice(i, i + CONCURRENCY)
-        .map((row) => handleSubscription(row, snapshot, now, stats)),
+        .map((row) => handleSubscription(row, snapshot, samples, now, stats)),
     );
   }
 

@@ -33,5 +33,11 @@ export async function deliver(
   return channel.send(subscription, payload);
 }
 
-export { buildPriceNotification, buildStartNotification } from "./compose";
+export {
+  buildPriceNotification,
+  buildStartNotification,
+  buildWatchEndedNotification,
+  buildWatchHitNotification,
+  buildWatchStartNotification,
+} from "./compose";
 export type { DeliveryOutcome, NotificationPayload } from "./types";

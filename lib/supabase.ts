@@ -35,6 +35,11 @@ export type SubscriptionRow = {
   auth: string | null;
   telegram_chat_id: string | null;
   locale: "he" | "en";
+  mode: "interval" | "target" | "drop";
+  /** The most the user is willing to pay. Set only for the 'target' mode. */
+  target_price: number | null;
+  /** How long the condition must hold. Null for 'interval'. */
+  stability_minutes: number | null;
   interval_minutes: number;
   only_on_change: boolean;
   active: boolean;

@@ -22,6 +22,27 @@
     "refreshing": "מרענן…"
   },
   "form": {
+    "modeLabel": "עדכנו אותי כש…",
+    "mode": {
+      "target": {
+        "label": "המחיר יורד מתחת ל…",
+        "hint": "התראה אחת, כשהמחיר באמת שם ונשאר"
+      },
+      "drop": {
+        "label": "המחיר מתחיל לרדת",
+        "hint": "התראה אחת, כשהמחיר יורד ולא חוזר לעלות"
+      },
+      "interval": {
+        "label": "כל כמה דקות",
+        "hint": "המחיר לפי שעון, מה שלא יקרה"
+      }
+    },
+    "targetLabel": "המחיר המקסימלי שאשלם",
+    "targetDown": "הורידו את המחיר",
+    "targetUp": "העלו את המחיר",
+    "targetAlreadyMet": "המחיר כבר {price} ₪ — ההתראה תגיע כמעט מיד.",
+    "stabilityLabel": "רק אם הוא מחזיק",
+    "watchDurationLabel": "נעקוב עד",
     "intervalLabel": "עדכנו אותי כל",
     "durationLabel": "למשך",
     "minutes": "{count, plural, one {דקה} two {שתי דקות} other {# דקות}}",
@@ -35,20 +56,31 @@
       "hint": "בלי התראות חוזרות על אותו מחיר"
     },
     "submit": "הפעילו התראות",
+    "submitTarget": "עדכנו אותי מתחת ל-{target} ₪",
+    "submitDrop": "עדכנו אותי כשהמחיר יורד",
     "submitting": "מפעיל…",
-    "summary": "נשלח לכם התראה כל {interval}, במשך {duration}."
+    "summary": "נשלח לכם התראה כל {interval}, במשך {duration}.",
+    "summaryTarget": "התראה אחת, ברגע שהמחיר מחזיק מתחת ל-{target} ₪ במשך {window}. נעקוב {duration}.",
+    "summaryDrop": "התראה אחת, ברגע שהמחיר יורד — ולא חוזר לעלות — במשך {window}. נעקוב {duration}."
   },
   "session": {
     "activeTitle": "המעקב פעיל",
+    "watchTitle": "עוקבים אחרי המחיר",
+    "watchingTarget": "נעדכן אתכם כשהמחיר יירד מתחת ל-{target} ₪",
+    "watchingDrop": "נעדכן אתכם כשהמחיר יתחיל לרדת ויישאר למטה",
+    "watchWindow": "רק אחרי שהוא מחזיק {window}",
+    "watchEndsAt": "נעקוב עד {time}",
     "nextUpdate": "העדכון הבא בעוד {countdown}",
     "nextUpdateNow": "העדכון הבא ממש עכשיו",
     "endsAt": "המעקב יסתיים ב-{time}",
     "everyInterval": "עדכון {interval}",
     "onlyOnChangeOn": "רק כשהמחיר משתנה",
     "stop": "עצרו את המעקב",
+    "stopWatch": "בטלו את המעקב",
     "stopping": "עוצר…",
     "stopped": "המעקב הופסק. אפשר להתחיל מחדש מתי שתרצו.",
-    "expired": "המעקב הסתיים. רוצים עוד סבב?"
+    "expired": "המעקב הסתיים. רוצים עוד סבב?",
+    "watchFinished": "המעקב הסתיים — כדאי לבדוק את ההתראות. אפשר להתחיל מעקב חדש מתי שתרצו."
   },
   "push": {
     "enabledToast": "מעולה! שלחנו לכם התראת בדיקה.",
@@ -74,7 +106,17 @@
     "bodyChanged": "עודכן {time} · היה {previous} ₪",
     "startTitle": "המעקב הופעל — {price} ₪ עכשיו",
     "startBody": "נעדכן אתכם {interval}, עד {until}",
-    "finalBody": "עודכן {time} · זה העדכון האחרון בסבב הזה"
+    "finalBody": "עודכן {time} · זה העדכון האחרון בסבב הזה",
+    "watchStartTitle": "עוקבים — {price} ₪ עכשיו",
+    "watchStartTargetBody": "נעדכן ברגע שהמחיר מחזיק מתחת ל-{target} ₪ במשך {window}. עוקבים עד {until}.",
+    "watchStartDropBody": "נעדכן ברגע שהמחיר יורד {window} בלי לחזור לעלות. עוקבים עד {until}.",
+    "targetHitTitle": "אפשר לנסוע — {price} ₪",
+    "targetHitBody": "מתחת ל-{target} ₪ שביקשתם, ויציב שם כבר {window}",
+    "dropHitTitle": "המחיר יורד — {price} ₪",
+    "dropHitBody": "ירד מ-{previous} ₪, ובלי עלייה כבר {window}",
+    "watchEndedTitle": "המעקב הסתיים — עדיין {price} ₪",
+    "watchEndedTargetBody": "המחיר לא התייצב מתחת ל-{target} ₪. אפשר להתחיל מעקב חדש מתי שתרצו.",
+    "watchEndedDropBody": "לא הייתה ירידה יציבה בסבב הזה. אפשר להתחיל מעקב חדש מתי שתרצו."
   },
   "footer": {
     "sourceNote": "המחירים נמשכים מהאתר הרשמי של הנתיב המהיר ומוצגים כפי שהם.",

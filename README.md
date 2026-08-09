@@ -1,8 +1,15 @@
 # הנתיב המהיר עכשיו — Fast Lane Now
 
-A free, no-signup web app that pushes the current [Fast Lane](https://fastlane.co.il/)
-toll price to your phone on an interval you choose — every minute to every half
-hour, for up to two hours. Hebrew by default, English at `/en`.
+A free, no-signup web app that watches the [Fast Lane](https://fastlane.co.il/)
+toll price for you and pushes it to your phone. Three things you can ask for:
+
+| | |
+| --- | --- |
+| **Under a price** | One alert, once the price has *held* at or under the most you're willing to pay. ₪20 by default. |
+| **Starting to fall** | One alert, once the price has been coming down — and not going back up — for a while. |
+| **Every few minutes** | The price on a schedule, every minute to every half hour, for up to two hours. |
+
+Hebrew by default, English at `/en`.
 
 Installable as a PWA, mobile-first, works on desktop too.
 
@@ -100,6 +107,7 @@ them.
 | `app/api/unsubscribe` | Stops a session (needs id + stop token). |
 | `app/api/session` | Lets a returning device check if its session is still live. |
 | `app/api/cron/tick` | The heartbeat. Secret-guarded. |
+| `lib/price-history.ts` | Whether a price condition has actually *held*. The heart of the watches. |
 | `lib/notify/` | Channel abstraction: `webpush.ts` is live, `telegram.ts` is ready. |
 | `supabase/schema.sql` | Tables, indexes, RLS lockdown. |
 | `supabase/migrations/` | Changes to apply to databases created before them. |
@@ -219,6 +227,35 @@ is exactly why the price kept working while notifications didn't.
 
 **One session per device.** The push endpoint is unique in the database, so
 starting a new session replaces the old one rather than stacking notifications.
+
+**A price watch is about what held, not what happened.** "Under ₪20" firing the
+instant the price touches ₪19 would be useless — by the time the phone is out
+of the pocket it's ₪48 again. So both watches ask whether the condition has
+been continuously true for a window the user picks (5, 10 or 15 minutes), and
+the tick evaluates them every minute so they fire promptly once it is.
+
+The "starting to fall" watch has a trap in it worth naming. A falling price is
+one that hasn't risen — but so is a price that has been flat for an hour, so
+timing the run from the start of the non-increasing stretch would score that
+hour as stability and fire the instant the price first moved, which is the
+exact opposite of a debounce. The clock therefore starts at the *first drop*
+after the last rise, and the plateau before it doesn't count.
+
+**A watch can't vouch for a window nobody watched.** `price_samples` holds one
+row per price *change*, not one per minute — an unchanged price writes nothing
+new. That makes a gap between rows ambiguous: either the price held, or the
+fetcher was down. `last_seen_at` settles it, updated on every ingest even when
+the reading is a repeat, so each row covers a known interval and a hole longer
+than the staleness threshold breaks the run. Without it, a fetcher outage would
+read as perfect stability and fire every watch the moment it came back.
+
+**A watch ends when it fires, and says so when it doesn't.** One alert is the
+whole point; a second one five minutes later helps nobody. If the watch runs
+its full duration without the condition ever holding, it sends a short "that's
+over, still ₪48" instead — silence is otherwise indistinguishable from a watch
+that's still running. A push failure on the alert itself doesn't end the
+session, though: it retries on the next tick, since the condition it fired on
+is almost certainly still true.
 
 **"Only when the price changes"** compares against the price of the last
 notification the user actually received, not the last tick — so they never get

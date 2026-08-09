@@ -5,13 +5,24 @@ import { useTranslations } from "next-intl";
 import { Link, usePathname } from "@/i18n/navigation";
 import type { Locale } from "@/i18n/routing";
 import {
+  ALERT_MODES,
   DEFAULT_DURATION,
   DEFAULT_INTERVAL,
+  DEFAULT_MODE,
+  DEFAULT_STABILITY,
+  DEFAULT_TARGET_PRICE,
   DISPLAY_TIME_ZONE,
   DURATION_CHOICES,
   INTERVAL_CHOICES,
+  isWatchMode,
+  MAX_TARGET_PRICE,
+  MIN_TARGET_PRICE,
+  STABILITY_CHOICES,
+  TARGET_PRICE_STEP,
+  type AlertMode,
   type DurationMinutes,
   type IntervalMinutes,
+  type StabilityMinutes,
 } from "@/lib/config";
 import {
   detectCapability,
@@ -20,7 +31,14 @@ import {
   type PushCapability,
 } from "@/lib/push-client";
 import { RoadBackdrop } from "./RoadBackdrop";
-import { Notice, Segmented, Toggle, type NoticeTone } from "./ui";
+import {
+  Notice,
+  OptionCards,
+  PriceField,
+  Segmented,
+  Toggle,
+  type NoticeTone,
+} from "./ui";
 import { usePullToRefresh } from "./use-pull-to-refresh";
 
 const STORAGE_KEY = "fastlane-now.session";
@@ -39,6 +57,9 @@ type PriceState = {
 type SessionView = {
   id: string;
   active: boolean;
+  mode: AlertMode;
+  targetPrice: number | null;
+  stabilityMinutes: number | null;
   intervalMinutes: number;
   onlyOnChange: boolean;
   startedAt: string;
@@ -60,6 +81,9 @@ type NoticeState = {
 type SubscribeResponse = {
   id: string;
   stopToken: string;
+  mode: AlertMode;
+  targetPrice: number | null;
+  stabilityMinutes: number | null;
   intervalMinutes: number;
   onlyOnChange: boolean;
   startedAt: string;
@@ -156,6 +180,10 @@ function formatCountdown(ms: number) {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
 }
 
+/**
+ * The stored session, active or not — a watch that has already fired still has
+ * a row, and "it ended" is a different thing to say than "it never existed".
+ */
 async function fetchSession(
   credentials: StoredCredentials,
 ): Promise<SessionView | null> {
@@ -168,7 +196,7 @@ async function fetchSession(
     found: boolean;
     session?: SessionView;
   };
-  return data.found && data.session?.active ? data.session : null;
+  return data.found && data.session ? data.session : null;
 }
 
 export function PriceApp({ locale }: { locale: Locale }) {
@@ -185,6 +213,10 @@ export function PriceApp({ locale }: { locale: Locale }) {
   const [price, setPrice] = useState<PriceState | null>(null);
   const [priceFailed, setPriceFailed] = useState(false);
 
+  const [mode, setMode] = useState<AlertMode>(DEFAULT_MODE);
+  const [targetPrice, setTargetPrice] = useState(DEFAULT_TARGET_PRICE);
+  const [stability, setStability] =
+    useState<StabilityMinutes>(DEFAULT_STABILITY);
   const [interval, setIntervalMinutes] =
     useState<IntervalMinutes>(DEFAULT_INTERVAL);
   const [duration, setDuration] = useState<DurationMinutes>(DEFAULT_DURATION);
@@ -234,7 +266,7 @@ export function PriceApp({ locale }: { locale: Locale }) {
     fetchSession(stored)
       .then((restored) => {
         if (cancelled) return;
-        if (restored) {
+        if (restored?.active) {
           setSession(restored);
           setNow(Date.now());
         } else {
@@ -256,12 +288,20 @@ export function PriceApp({ locale }: { locale: Locale }) {
     lastSessionRefresh.current = Date.now();
     try {
       const refreshed = await fetchSession(stored);
-      if (refreshed) {
+      if (refreshed?.active) {
         setSession(refreshed);
       } else {
         clearStored();
         setSession(null);
-        setNotice({ tone: "info", body: t("session.expired") });
+        setNotice({
+          tone: "info",
+          // A watch ends by firing as often as by running out, and from here
+          // the two look the same — so say the true thing about both.
+          body:
+            refreshed && isWatchMode(refreshed.mode)
+              ? t("session.watchFinished")
+              : t("session.expired"),
+        });
       }
     } catch {
       /* keep showing what we have */
@@ -272,22 +312,22 @@ export function PriceApp({ locale }: { locale: Locale }) {
   useEffect(() => {
     if (!session?.active) return;
 
+    const watching = isWatchMode(session.mode);
     const due = new Date(session.nextRunAt).getTime();
     const ends = new Date(session.expiresAt).getTime();
+    // A watch re-evaluates every minute, so its next_run_at is always about to
+    // pass; polling it at the interval-alert rate would be pure noise. Once a
+    // minute is enough to notice that it fired.
+    const minGapMs = watching ? 60_000 : 15_000;
 
     const timer = window.setInterval(() => {
       const tick = Date.now();
       setNow(tick);
 
-      // The scheduled moment has passed — ask the server for the next one.
-      if (tick > ends) {
-        void refreshSession();
-      } else if (
-        tick > due + 3_000 &&
-        tick - lastSessionRefresh.current > 15_000
-      ) {
-        void refreshSession();
-      }
+      if (tick - lastSessionRefresh.current < minGapMs) return;
+      // Past the end, or past the moment something should have happened —
+      // either way the server knows more than we do.
+      if (tick > ends || tick > due + 3_000) void refreshSession();
     }, 1000);
 
     return () => window.clearInterval(timer);
@@ -337,9 +377,12 @@ export function PriceApp({ locale }: { locale: Locale }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           subscription,
-          intervalMinutes: interval,
+          mode,
+          targetPrice: mode === "target" ? targetPrice : undefined,
+          stabilityMinutes: isWatchMode(mode) ? stability : undefined,
+          intervalMinutes: mode === "interval" ? interval : undefined,
           durationMinutes: duration,
-          onlyOnChange,
+          onlyOnChange: mode === "interval" ? onlyOnChange : false,
           locale,
         }),
       });
@@ -428,6 +471,9 @@ export function PriceApp({ locale }: { locale: Locale }) {
       setSession({
         id: data.id,
         active: true,
+        mode: data.mode,
+        targetPrice: data.targetPrice,
+        stabilityMinutes: data.stabilityMinutes,
         intervalMinutes: data.intervalMinutes,
         onlyOnChange: data.onlyOnChange,
         startedAt: data.startedAt,
@@ -487,6 +533,36 @@ export function PriceApp({ locale }: { locale: Locale }) {
     t("form.minutes", { count: minutes });
   const countdownMs =
     session && now ? new Date(session.nextRunAt).getTime() - now : 0;
+
+  const watching = session ? isWatchMode(session.mode) : false;
+  const targetLabel = String(targetPrice);
+  /** They've asked to hear about a price the road is already at or under. */
+  const targetAlreadyMet =
+    mode === "target" && price !== null && price.price <= targetPrice;
+
+  const submitLabel =
+    mode === "target"
+      ? t("form.submitTarget", { target: targetLabel })
+      : mode === "drop"
+        ? t("form.submitDrop")
+        : t("form.submit");
+
+  const summary =
+    mode === "target"
+      ? t("form.summaryTarget", {
+          target: targetLabel,
+          window: intervalLabel(stability),
+          duration: t(`form.duration.${duration}`),
+        })
+      : mode === "drop"
+        ? t("form.summaryDrop", {
+            window: intervalLabel(stability),
+            duration: t(`form.duration.${duration}`),
+          })
+        : t("form.summary", {
+            interval: intervalLabel(interval),
+            duration: t(`form.duration.${duration}`),
+          });
 
   return (
     <>
@@ -612,28 +688,50 @@ export function PriceApp({ locale }: { locale: Locale }) {
           <div className="flex items-center gap-2">
             <span className="live-dot inline-block h-2 w-2 rounded-full bg-tangerine" />
             <h2 className="text-lg font-semibold text-navy">
-              {t("session.activeTitle")}
+              {watching ? t("session.watchTitle") : t("session.activeTitle")}
             </h2>
           </div>
 
-          <p className="numeric text-3xl font-bold text-navy">
-            {countdownMs > 0
-              ? t("session.nextUpdate", {
-                  countdown: formatCountdown(countdownMs),
-                })
-              : t("session.nextUpdateNow")}
-          </p>
+          {watching ? (
+            <p className="text-2xl font-bold leading-snug text-navy">
+              {session.mode === "target"
+                ? t("session.watchingTarget", {
+                    target: String(session.targetPrice),
+                  })
+                : t("session.watchingDrop")}
+            </p>
+          ) : (
+            <p className="numeric text-3xl font-bold text-navy">
+              {countdownMs > 0
+                ? t("session.nextUpdate", {
+                    countdown: formatCountdown(countdownMs),
+                  })
+                : t("session.nextUpdateNow")}
+            </p>
+          )}
 
           <ul className="space-y-1 text-sm text-muted">
+            {watching ? (
+              <li>
+                {t("session.watchWindow", {
+                  window: intervalLabel(session.stabilityMinutes ?? 0),
+                })}
+              </li>
+            ) : (
+              <li>
+                {t("session.everyInterval", {
+                  interval: intervalLabel(session.intervalMinutes),
+                })}
+              </li>
+            )}
             <li>
-              {t("session.everyInterval", {
-                interval: intervalLabel(session.intervalMinutes),
-              })}
-            </li>
-            <li>
-              {t("session.endsAt", {
-                time: formatClock(session.expiresAt, locale),
-              })}
+              {watching
+                ? t("session.watchEndsAt", {
+                    time: formatClock(session.expiresAt, locale),
+                  })
+                : t("session.endsAt", {
+                    time: formatClock(session.expiresAt, locale),
+                  })}
             </li>
             {session.onlyOnChange ? (
               <li className="text-tangerine">{t("session.onlyOnChangeOn")}</li>
@@ -646,7 +744,11 @@ export function PriceApp({ locale }: { locale: Locale }) {
             disabled={busy}
             className="w-full rounded-2xl border border-danger/40 bg-danger/8 py-3.5 text-base font-semibold text-danger transition hover:bg-danger/15 disabled:opacity-50"
           >
-            {busy ? t("session.stopping") : t("session.stop")}
+            {busy
+              ? t("session.stopping")
+              : watching
+                ? t("session.stopWatch")
+                : t("session.stop")}
           </button>
         </section>
       ) : capability === "ios-needs-install" ? (
@@ -668,19 +770,68 @@ export function PriceApp({ locale }: { locale: Locale }) {
         </section>
       ) : (
         <section className="card space-y-5 p-5">
-          <Segmented
-            label={t("form.intervalLabel")}
-            options={INTERVAL_CHOICES.map((value) => ({
+          <OptionCards
+            label={t("form.modeLabel")}
+            options={ALERT_MODES.map((value) => ({
               value,
-              label: intervalLabel(value),
+              label: t(`form.mode.${value}.label`),
+              hint: t(`form.mode.${value}.hint`),
             }))}
-            value={interval}
-            onChange={setIntervalMinutes}
+            value={mode}
+            onChange={setMode}
             disabled={busy}
           />
 
+          {mode === "target" ? (
+            <PriceField
+              label={t("form.targetLabel")}
+              hint={
+                targetAlreadyMet && price
+                  ? t("form.targetAlreadyMet", { price: price.raw })
+                  : undefined
+              }
+              value={targetPrice}
+              onChange={setTargetPrice}
+              min={MIN_TARGET_PRICE}
+              max={MAX_TARGET_PRICE}
+              step={TARGET_PRICE_STEP}
+              currency={t("price.currency")}
+              decrementLabel={t("form.targetDown")}
+              incrementLabel={t("form.targetUp")}
+              disabled={busy}
+            />
+          ) : null}
+
+          {isWatchMode(mode) ? (
+            <Segmented
+              label={t("form.stabilityLabel")}
+              options={STABILITY_CHOICES.map((value) => ({
+                value,
+                label: intervalLabel(value),
+              }))}
+              value={stability}
+              onChange={setStability}
+              disabled={busy}
+            />
+          ) : (
+            <Segmented
+              label={t("form.intervalLabel")}
+              options={INTERVAL_CHOICES.map((value) => ({
+                value,
+                label: intervalLabel(value),
+              }))}
+              value={interval}
+              onChange={setIntervalMinutes}
+              disabled={busy}
+            />
+          )}
+
           <Segmented
-            label={t("form.durationLabel")}
+            label={
+              isWatchMode(mode)
+                ? t("form.watchDurationLabel")
+                : t("form.durationLabel")
+            }
             options={DURATION_CHOICES.map((value) => ({
               value,
               label: t(`form.duration.${value}`),
@@ -690,20 +841,17 @@ export function PriceApp({ locale }: { locale: Locale }) {
             disabled={busy}
           />
 
-          <Toggle
-            label={t("form.onlyOnChange.label")}
-            hint={t("form.onlyOnChange.hint")}
-            checked={onlyOnChange}
-            onChange={setOnlyOnChange}
-            disabled={busy}
-          />
+          {mode === "interval" ? (
+            <Toggle
+              label={t("form.onlyOnChange.label")}
+              hint={t("form.onlyOnChange.hint")}
+              checked={onlyOnChange}
+              onChange={setOnlyOnChange}
+              disabled={busy}
+            />
+          ) : null}
 
-          <p className="text-sm text-muted">
-            {t("form.summary", {
-              interval: intervalLabel(interval),
-              duration: t(`form.duration.${duration}`),
-            })}
-          </p>
+          <p className="text-sm text-muted">{summary}</p>
 
           <button
             type="button"
@@ -711,7 +859,7 @@ export function PriceApp({ locale }: { locale: Locale }) {
             disabled={busy || capability === "checking"}
             className="w-full rounded-2xl bg-navy py-4 text-lg font-bold text-white shadow-sm transition hover:bg-navy-deep disabled:opacity-50"
           >
-            {busy ? t("form.submitting") : t("form.submit")}
+            {busy ? t("form.submitting") : submitLabel}
           </button>
         </section>
       )}

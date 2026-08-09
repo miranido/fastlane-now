@@ -22,6 +22,27 @@
     "refreshing": "Refreshing…"
   },
   "form": {
+    "modeLabel": "Tell me when",
+    "mode": {
+      "target": {
+        "label": "The price drops below…",
+        "hint": "One alert, once it's actually down there and staying"
+      },
+      "drop": {
+        "label": "The price starts falling",
+        "hint": "One alert, once it's been coming down steadily"
+      },
+      "interval": {
+        "label": "Every few minutes",
+        "hint": "The price on a schedule, whatever it's doing"
+      }
+    },
+    "targetLabel": "Most I'm willing to pay",
+    "targetDown": "Lower the price",
+    "targetUp": "Raise the price",
+    "targetAlreadyMet": "It's already {price} ₪ — you'll hear from us right away.",
+    "stabilityLabel": "Only if it holds for",
+    "watchDurationLabel": "Watch for up to",
     "intervalLabel": "Update me every",
     "durationLabel": "For",
     "minutes": "{count, plural, one {1 minute} other {# minutes}}",
@@ -35,20 +56,31 @@
       "hint": "No repeat alerts for the same price"
     },
     "submit": "Turn on alerts",
+    "submitTarget": "Notify me under {target} ₪",
+    "submitDrop": "Notify me when it falls",
     "submitting": "Starting…",
-    "summary": "We'll notify you every {interval}, for {duration}."
+    "summary": "We'll notify you every {interval}, for {duration}.",
+    "summaryTarget": "One notification, the moment the price has held under {target} ₪ for {window}. We'll watch for {duration}.",
+    "summaryDrop": "One notification, once the price has been falling — and not going back up — for {window}. We'll watch for {duration}."
   },
   "session": {
     "activeTitle": "Tracking is on",
+    "watchTitle": "Watching the price",
+    "watchingTarget": "We'll ping you when it drops below {target} ₪",
+    "watchingDrop": "We'll ping you when it starts falling and stays down",
+    "watchWindow": "Only once it holds for {window}",
+    "watchEndsAt": "We'll watch until {time}",
     "nextUpdate": "Next update in {countdown}",
     "nextUpdateNow": "Next update any moment now",
     "endsAt": "Tracking ends at {time}",
     "everyInterval": "Every {interval}",
     "onlyOnChangeOn": "Only when the price changes",
     "stop": "Stop tracking",
+    "stopWatch": "Cancel the watch",
     "stopping": "Stopping…",
     "stopped": "Tracking stopped. Start again whenever you like.",
-    "expired": "That round is over. Want another one?"
+    "expired": "That round is over. Want another one?",
+    "watchFinished": "The watch has ended — check your notifications. Start another whenever you like."
   },
   "push": {
     "enabledToast": "You're set — we sent a test notification.",
@@ -74,7 +106,17 @@
     "bodyChanged": "Updated {time} · was {previous} ₪",
     "startTitle": "Tracking on — {price} ₪ right now",
     "startBody": "We'll update you every {interval}, until {until}",
-    "finalBody": "Updated {time} · last update of this round"
+    "finalBody": "Updated {time} · last update of this round",
+    "watchStartTitle": "Watching — {price} ₪ right now",
+    "watchStartTargetBody": "We'll ping you once it holds under {target} ₪ for {window}. Watching until {until}.",
+    "watchStartDropBody": "We'll ping you once it's been falling for {window} without going back up. Watching until {until}.",
+    "targetHitTitle": "Go now — {price} ₪",
+    "targetHitBody": "Under your {target} ₪ and steady there for {window}",
+    "dropHitTitle": "The price is falling — {price} ₪",
+    "dropHitBody": "Down from {previous} ₪, and no rise for {window}",
+    "watchEndedTitle": "Watch over — still {price} ₪",
+    "watchEndedTargetBody": "It never settled under {target} ₪. Start another watch whenever you like.",
+    "watchEndedDropBody": "No steady fall this round. Start another watch whenever you like."
   },
   "footer": {
     "sourceNote": "Prices come straight from the official Fast Lane site and are shown as-is.",

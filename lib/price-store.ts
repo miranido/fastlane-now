@@ -1,6 +1,7 @@
 import "server-only";
-import { DISPLAY_TIME_ZONE } from "./config";
+import { DISPLAY_TIME_ZONE, PRICE_STALE_AFTER_MS } from "./config";
 import type { PriceSnapshot } from "./price";
+import type { PriceSample } from "./price-history";
 import { getServiceClient } from "./supabase";
 
 /**
@@ -9,12 +10,14 @@ import { getServiceClient } from "./supabase";
  * to /api/price/ingest, and everything server-side reads them from here.
  */
 
+export { PRICE_STALE_AFTER_MS };
+
 /**
- * How old a reading may be before we treat it as no reading at all. Three
- * missed minutes means the fetcher is down, and showing a price from an hour
- * ago as if it were current would be worse than showing nothing.
+ * How many past readings a watch evaluation looks at. Rows only appear when
+ * the price actually changes, so even at the pathological rate of one change
+ * per minute this reaches back well past the longest stability window.
  */
-export const PRICE_STALE_AFTER_MS = 3 * 60_000;
+const HISTORY_DEPTH = 40;
 
 function formatInIsrael(date: Date, options: Intl.DateTimeFormatOptions) {
   return new Intl.DateTimeFormat("he-IL", {
@@ -24,14 +27,59 @@ function formatInIsrael(date: Date, options: Intl.DateTimeFormatOptions) {
 }
 
 export async function recordPrice(snapshot: PriceSnapshot): Promise<void> {
+  // Not ignoreDuplicates: a repeat reading is the whole point of last_seen_at.
+  // The operator's stamp stays put while the price holds, so re-ingesting the
+  // same stamp is how we record "still true at this moment" — the evidence
+  // price watches need to tell a steady price from a dead fetcher.
   const { error } = await getServiceClient()
     .from("price_samples")
     .upsert(
-      { price: snapshot.price, observed_at: snapshot.observedAt },
-      { onConflict: "observed_at", ignoreDuplicates: true },
+      {
+        price: snapshot.price,
+        observed_at: snapshot.observedAt,
+        last_seen_at: new Date().toISOString(),
+      },
+      { onConflict: "observed_at" },
     );
 
   if (error) throw new Error(`failed to record price: ${error.message}`);
+}
+
+/**
+ * Recent readings as coverage intervals, oldest first — what the watches in
+ * lib/price-history.ts reason over.
+ */
+export async function readRecentSamples(): Promise<PriceSample[]> {
+  const { data, error } = await getServiceClient()
+    .from("price_samples")
+    .select("price, observed_at, last_seen_at")
+    .order("observed_at", { ascending: false })
+    .limit(HISTORY_DEPTH)
+    .returns<
+      { price: number; observed_at: string; last_seen_at: string | null }[]
+    >();
+
+  if (error) throw new Error(`failed to read price history: ${error.message}`);
+  if (!data) return [];
+
+  return data
+    .map((row) => {
+      const startedAt = new Date(row.observed_at).getTime();
+      // Rows predating the last_seen_at column can only vouch for the instant
+      // they were stamped, which is what the migration backfilled them with.
+      const lastSeenAt = row.last_seen_at
+        ? new Date(row.last_seen_at).getTime()
+        : startedAt;
+      return {
+        price: Number(row.price),
+        // The two timestamps come from different clocks — the operator's stamp
+        // and ours. They normally agree to within a poll, but a stamp landing
+        // after we saw it would make the interval run backwards.
+        startedAt: Math.min(startedAt, lastSeenAt),
+        lastSeenAt,
+      };
+    })
+    .reverse();
 }
 
 export type StoredPrice = PriceSnapshot & { ageMs: number; stale: boolean };

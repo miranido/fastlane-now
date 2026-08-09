@@ -1,11 +1,22 @@
 import { NextResponse } from "next/server";
 import {
+  DEFAULT_MODE,
   isValidDuration,
   isValidInterval,
+  isValidMode,
+  isValidStability,
+  isWatchMode,
+  normaliseTargetPrice,
+  WATCH_EVALUATION_MINUTES,
+  type AlertMode,
   type DurationMinutes,
   type IntervalMinutes,
 } from "@/lib/config";
-import { buildStartNotification, deliver } from "@/lib/notify";
+import {
+  buildStartNotification,
+  buildWatchStartNotification,
+  deliver,
+} from "@/lib/notify";
 import { readFreshPrice } from "@/lib/price-store";
 import { isAllowedPushEndpoint } from "@/lib/push-endpoint";
 import { getServiceClient, type SubscriptionRow } from "@/lib/supabase";
@@ -18,6 +29,9 @@ type Body = {
     endpoint?: unknown;
     keys?: { p256dh?: unknown; auth?: unknown };
   };
+  mode?: unknown;
+  targetPrice?: unknown;
+  stabilityMinutes?: unknown;
   intervalMinutes?: unknown;
   durationMinutes?: unknown;
   onlyOnChange?: unknown;
@@ -26,6 +40,59 @@ type Body = {
 
 function badRequest(error: string) {
   return NextResponse.json({ error }, { status: 400 });
+}
+
+type Settings = {
+  mode: AlertMode;
+  targetPrice: number | null;
+  stabilityMinutes: number | null;
+  intervalMinutes: number;
+  onlyOnChange: boolean;
+};
+
+/**
+ * Validates the half of the request that differs by mode. A watch has no
+ * interval of its own — it's evaluated on every tick so it fires within a
+ * minute of the condition being met — and interval alerts have no threshold.
+ */
+function readSettings(
+  body: Body,
+  durationMinutes: number,
+): Settings | { error: string } {
+  const mode: AlertMode = body.mode === undefined ? DEFAULT_MODE : (body.mode as AlertMode);
+  if (!isValidMode(mode)) return { error: "invalid_mode" };
+
+  if (!isWatchMode(mode)) {
+    const intervalMinutes = Number(body.intervalMinutes);
+    if (!isValidInterval(intervalMinutes)) return { error: "invalid_interval" };
+    if (intervalMinutes > durationMinutes) return { error: "interval_too_long" };
+    return {
+      mode,
+      targetPrice: null,
+      stabilityMinutes: null,
+      intervalMinutes,
+      onlyOnChange: body.onlyOnChange === true,
+    };
+  }
+
+  const stabilityMinutes = Number(body.stabilityMinutes);
+  if (!isValidStability(stabilityMinutes)) return { error: "invalid_stability" };
+  // A window longer than the watch itself could never come true.
+  if (stabilityMinutes > durationMinutes) return { error: "stability_too_long" };
+
+  let targetPrice: number | null = null;
+  if (mode === "target") {
+    targetPrice = normaliseTargetPrice(body.targetPrice);
+    if (targetPrice === null) return { error: "invalid_target_price" };
+  }
+
+  return {
+    mode,
+    targetPrice,
+    stabilityMinutes,
+    intervalMinutes: WATCH_EVALUATION_MINUTES,
+    onlyOnChange: false,
+  };
 }
 
 export async function POST(request: Request) {
@@ -52,14 +119,15 @@ export async function POST(request: Request) {
     return badRequest("unsupported_push_service");
   }
 
-  const intervalMinutes = Number(body.intervalMinutes);
   const durationMinutes = Number(body.durationMinutes);
-  if (!isValidInterval(intervalMinutes)) return badRequest("invalid_interval");
   if (!isValidDuration(durationMinutes)) return badRequest("invalid_duration");
-  if (intervalMinutes > durationMinutes) return badRequest("interval_too_long");
+
+  const settings = readSettings(body, durationMinutes);
+  if ("error" in settings) return badRequest(settings.error);
+  const { mode, targetPrice, stabilityMinutes, intervalMinutes, onlyOnChange } =
+    settings;
 
   const locale = body.locale === "en" ? "en" : "he";
-  const onlyOnChange = body.onlyOnChange === true;
 
   // The confirmation doubles as proof that notifications actually work, so
   // read the price up front — but don't fail the subscription over it.
@@ -84,6 +152,9 @@ export async function POST(request: Request) {
         p256dh,
         auth,
         locale,
+        mode,
+        target_price: targetPrice,
+        stability_minutes: stabilityMinutes,
         interval_minutes: intervalMinutes as IntervalMinutes,
         only_on_change: onlyOnChange,
         active: true,
@@ -118,12 +189,21 @@ export async function POST(request: Request) {
   if (snapshot) {
     const outcome = await deliver(
       data,
-      buildStartNotification({
-        locale,
-        snapshot,
-        intervalMinutes,
-        expiresAt: expiresAt.toISOString(),
-      }),
+      isWatchMode(mode)
+        ? buildWatchStartNotification({
+            locale,
+            snapshot,
+            mode,
+            targetPrice,
+            stabilityMinutes: stabilityMinutes as number,
+            expiresAt: expiresAt.toISOString(),
+          })
+        : buildStartNotification({
+            locale,
+            snapshot,
+            intervalMinutes,
+            expiresAt: expiresAt.toISOString(),
+          }),
     );
 
     // If the very first push bounces, the subscription is worthless — tell the
@@ -143,6 +223,9 @@ export async function POST(request: Request) {
   return NextResponse.json({
     id: data.id,
     stopToken: data.stop_token,
+    mode,
+    targetPrice,
+    stabilityMinutes,
     intervalMinutes,
     durationMinutes: durationMinutes as DurationMinutes,
     onlyOnChange,

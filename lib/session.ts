@@ -37,6 +37,9 @@ export function toSessionView(row: SubscriptionRow) {
   return {
     id: row.id,
     active: row.active && !expired,
+    mode: row.mode,
+    targetPrice: row.target_price === null ? null : Number(row.target_price),
+    stabilityMinutes: row.stability_minutes,
     intervalMinutes: row.interval_minutes,
     onlyOnChange: row.only_on_change,
     locale: row.locale,
