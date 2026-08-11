@@ -95,6 +95,7 @@ them.
 | --- | --- |
 | `app/[locale]/` | The single page. Hebrew at `/`, English at `/en`. |
 | `app/api/price` | Latest stored reading for the live display, CDN-cached 20s. |
+| `app/api/price/history` | The last hour as five-minute steps, for the graph. |
 | `app/api/price/ingest` | Where the Israeli fetcher posts readings. Secret-guarded. |
 | `app/api/subscribe` | Creates a session and sends the confirmation push. |
 | `app/api/unsubscribe` | Stops a session (needs id + stop token). |
@@ -191,6 +192,17 @@ select status_code, content, created from net._http_response
 ---
 
 ## Notes worth knowing
+
+**The graph is a staircase, and it has holes in it.** Under the live price is the
+last hour, marked every five minutes. A toll holds at one price until the
+operator changes it, so each mark takes the last reading at or before it rather
+than an average of the interval — the line steps, it doesn't slope. The
+carry-forward stops after the same three minutes that make the live price
+stale: a mark with nothing fresh behind it is drawn as a break in the line
+rather than a flat stretch, so a dead fetcher reads as an outage instead of an
+hour of remarkably steady pricing. The head of the graph is the present moment,
+not the last five-minute boundary, so it always agrees with the big number
+above it.
 
 **iPhone needs the app installed.** iOS only delivers Web Push to sites added to
 the home screen. The app detects iOS Safari and shows the three-step

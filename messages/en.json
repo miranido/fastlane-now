@@ -16,6 +16,14 @@
     "retry": "Try again",
     "live": "Updates automatically"
   },
+  "chart": {
+    "heading": "The last hour",
+    "hint": "In 5-minute steps",
+    "empty": "Not enough readings yet for a graph",
+    "gapNote": "A break in the line is a stretch with no reading.",
+    "summary": "Over the last hour the price ran between {low} and {high} ₪. It is {current} ₪ now.",
+    "summaryFlat": "The price has held at {price} ₪ for the last hour."
+  },
   "pull": {
     "pull": "Pull down to refresh",
     "release": "Release to refresh",

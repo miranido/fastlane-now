@@ -7,7 +7,6 @@ import type { Locale } from "@/i18n/routing";
 import {
   DEFAULT_DURATION,
   DEFAULT_INTERVAL,
-  DISPLAY_TIME_ZONE,
   DURATION_CHOICES,
   INTERVAL_CHOICES,
   type DurationMinutes,
@@ -19,6 +18,8 @@ import {
   subscribeToPush,
   type PushCapability,
 } from "@/lib/push-client";
+import { formatClock } from "@/lib/time";
+import { PriceChart, type HistoryPoint } from "./PriceChart";
 import { RoadBackdrop } from "./RoadBackdrop";
 import { Notice, Segmented, Toggle, type NoticeTone } from "./ui";
 import { usePullToRefresh } from "./use-pull-to-refresh";
@@ -142,15 +143,6 @@ function clearStored() {
   }
 }
 
-/** Always Israel time: it's where the road is, and it matches the operator. */
-function formatClock(iso: string, locale: Locale) {
-  return new Intl.DateTimeFormat(locale === "he" ? "he-IL" : "en-GB", {
-    timeZone: DISPLAY_TIME_ZONE,
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(iso));
-}
-
 function formatCountdown(ms: number) {
   const total = Math.max(0, Math.round(ms / 1000));
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
@@ -184,6 +176,7 @@ export function PriceApp({ locale }: { locale: Locale }) {
 
   const [price, setPrice] = useState<PriceState | null>(null);
   const [priceFailed, setPriceFailed] = useState(false);
+  const [history, setHistory] = useState<HistoryPoint[] | null>(null);
 
   const [interval, setIntervalMinutes] =
     useState<IntervalMinutes>(DEFAULT_INTERVAL);
@@ -212,18 +205,34 @@ export function PriceApp({ locale }: { locale: Locale }) {
       .catch(() => setPriceFailed(true));
   }, []);
 
+  // The last hour, for the graph. Secondary to the live price: if it fails the
+  // graph goes away rather than the whole card showing an error.
+  const loadHistory = useCallback(() => {
+    return fetch("/api/price/history", { cache: "no-store" })
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json() as Promise<{ points: HistoryPoint[] }>;
+      })
+      .then((data) => setHistory(data.points))
+      .catch(() => setHistory(null));
+  }, []);
+
+  const loadEverything = useCallback(() => {
+    return Promise.all([loadPrice(), loadHistory()]);
+  }, [loadPrice, loadHistory]);
+
   useEffect(() => {
-    void loadPrice();
-    const timer = window.setInterval(() => void loadPrice(), PRICE_POLL_MS);
+    void loadEverything();
+    const timer = window.setInterval(() => void loadEverything(), PRICE_POLL_MS);
     const onVisible = () => {
-      if (document.visibilityState === "visible") void loadPrice();
+      if (document.visibilityState === "visible") void loadEverything();
     };
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       window.clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [loadPrice]);
+  }, [loadEverything]);
 
   // --- restore a session left running on this device ----------------------
   useEffect(() => {
@@ -469,8 +478,8 @@ export function PriceApp({ locale }: { locale: Locale }) {
   // Installed to the home screen there's no browser reload button, so the
   // gesture people already reach for has to do something.
   const handleRefresh = useCallback(async () => {
-    await Promise.all([loadPrice(), refreshSession()]);
-  }, [loadPrice, refreshSession]);
+    await Promise.all([loadEverything(), refreshSession()]);
+  }, [loadEverything, refreshSession]);
 
   const { distance: pullDistance, phase: pullPhase } =
     usePullToRefresh(handleRefresh);
@@ -581,7 +590,7 @@ export function PriceApp({ locale }: { locale: Locale }) {
             <p className="text-muted">{t("price.error")}</p>
             <button
               type="button"
-              onClick={() => void loadPrice()}
+              onClick={() => void loadEverything()}
               className="mt-3 rounded-full border border-line px-4 py-2 text-sm font-medium text-navy transition hover:border-line-strong"
             >
               {t("price.retry")}
@@ -591,6 +600,9 @@ export function PriceApp({ locale }: { locale: Locale }) {
           <p className="mt-6 text-muted">{t("price.loading")}</p>
         )}
       </section>
+
+      {/* The last hour, once there's a graph worth drawing ---------------- */}
+      {history ? <PriceChart points={history} locale={locale} /> : null}
 
       {notice ? (
         <Notice tone={notice.tone} title={notice.title}>

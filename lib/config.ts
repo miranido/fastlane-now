@@ -19,5 +19,9 @@ export function isValidDuration(value: unknown): value is DurationMinutes {
 /** How long the browser may reuse a price reading before we refetch. */
 export const PRICE_CACHE_MS = 20_000;
 
+/** The price graph: the last hour, sampled every five minutes. */
+export const HISTORY_WINDOW_MINUTES = 60;
+export const HISTORY_BUCKET_MINUTES = 5;
+
 /** Israel is the only place this road exists, so timestamps are shown there. */
 export const DISPLAY_TIME_ZONE = "Asia/Jerusalem";
