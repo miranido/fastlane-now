@@ -69,6 +69,21 @@ body::before {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.055'/%3E%3C/svg%3E");
 }
 
+/* Text follows the reading direction — spelled out rather than left to the
+ * initial `text-align: start`, which some e-reader and in-app browsers don't
+ * implement (and reading modes override outright). They fall back to left,
+ * which drags the Hebrew footnotes to the wrong edge. `.text-start` is the
+ * same keyword by another name, so it needs the same treatment. */
+[dir="rtl"] body,
+[dir="rtl"] .text-start {
+  text-align: right;
+}
+
+[dir="ltr"] body,
+[dir="ltr"] .text-start {
+  text-align: left;
+}
+
 /* Inputs below 16px make iOS Safari zoom the viewport on focus. */
 input,
 select,
