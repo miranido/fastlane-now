@@ -19,9 +19,10 @@ import {
   type PushCapability,
 } from "@/lib/push-client";
 import { formatClock } from "@/lib/time";
-import { PriceChart, type HistoryPoint } from "./PriceChart";
+import { PriceChart } from "./PriceChart";
 import { RoadBackdrop } from "./RoadBackdrop";
 import { Notice, Segmented, Toggle, type NoticeTone } from "./ui";
+import { usePriceHistory } from "./use-price-history";
 import { usePullToRefresh } from "./use-pull-to-refresh";
 
 const STORAGE_KEY = "fastlane-now.session";
@@ -176,7 +177,15 @@ export function PriceApp({ locale }: { locale: Locale }) {
 
   const [price, setPrice] = useState<PriceState | null>(null);
   const [priceFailed, setPriceFailed] = useState(false);
-  const [history, setHistory] = useState<HistoryPoint[] | null>(null);
+
+  const {
+    range,
+    setRange,
+    compare,
+    setCompare,
+    history,
+    load: loadHistory,
+  } = usePriceHistory();
 
   const [interval, setIntervalMinutes] =
     useState<IntervalMinutes>(DEFAULT_INTERVAL);
@@ -205,18 +214,8 @@ export function PriceApp({ locale }: { locale: Locale }) {
       .catch(() => setPriceFailed(true));
   }, []);
 
-  // The last hour, for the graph. Secondary to the live price: if it fails the
-  // graph goes away rather than the whole card showing an error.
-  const loadHistory = useCallback(() => {
-    return fetch("/api/price/history", { cache: "no-store" })
-      .then((response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return response.json() as Promise<{ points: HistoryPoint[] }>;
-      })
-      .then((data) => setHistory(data.points))
-      .catch(() => setHistory(null));
-  }, []);
-
+  // Changing the range or turning the comparison on hands back a new
+  // loadHistory, which re-runs the effect below: one fetch, no extra plumbing.
   const loadEverything = useCallback(() => {
     return Promise.all([loadPrice(), loadHistory()]);
   }, [loadPrice, loadHistory]);
@@ -601,8 +600,17 @@ export function PriceApp({ locale }: { locale: Locale }) {
         )}
       </section>
 
-      {/* The last hour, once there's a graph worth drawing ---------------- */}
-      {history ? <PriceChart points={history} locale={locale} /> : null}
+      {/* The recent past, once there's a graph worth drawing -------------- */}
+      {history ? (
+        <PriceChart
+          history={history}
+          locale={locale}
+          range={range}
+          onRangeChange={setRange}
+          compare={compare}
+          onCompareChange={setCompare}
+        />
+      ) : null}
 
       {notice ? (
         <Notice tone={notice.tone} title={notice.title}>

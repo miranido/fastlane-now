@@ -95,7 +95,7 @@ them.
 | --- | --- |
 | `app/[locale]/` | The single page. Hebrew at `/`, English at `/en`. |
 | `app/api/price` | Latest stored reading for the live display, CDN-cached 20s. |
-| `app/api/price/history` | The last hour as five-minute steps, for the graph. |
+| `app/api/price/history` | The graph's readings. `?range=30m\|1h\|2h`, `?compare=1`. |
 | `app/api/price/ingest` | Where the Israeli fetcher posts readings. Secret-guarded. |
 | `app/api/subscribe` | Creates a session and sends the confirmation push. |
 | `app/api/unsubscribe` | Stops a session (needs id + stop token). |
@@ -193,16 +193,34 @@ select status_code, content, created from net._http_response
 
 ## Notes worth knowing
 
-**The graph is a staircase, and it has holes in it.** Under the live price is the
-last hour, marked every five minutes. A toll holds at one price until the
-operator changes it, so each mark takes the last reading at or before it rather
-than an average of the interval — the line steps, it doesn't slope. The
-carry-forward stops after the same three minutes that make the live price
-stale: a mark with nothing fresh behind it is drawn as a break in the line
-rather than a flat stretch, so a dead fetcher reads as an outage instead of an
-hour of remarkably steady pricing. The head of the graph is the present moment,
-not the last five-minute boundary, so it always agrees with the big number
-above it.
+**The graph says what it doesn't know.** Under the live price is the recent
+past: half an hour in two-minute steps, an hour in five-minute steps, or two
+hours as quarter-hour averages. The first two take, for each mark, the last
+reading at or before it — a toll holds at one price until the operator changes
+it, so that is the price that was actually in effect, and averaging it would
+invent a number nobody was ever charged. Two hours is averaged, because a
+quarter-hour bucket can span two changes and no single reading in it is more
+the truth than the others. Either way the carry-forward expires after the same
+three minutes that make the live price stale: a mark with nothing fresh behind
+it breaks the line rather than drawing a flat stretch, so a dead fetcher reads
+as an outage instead of two hours of remarkably steady pricing. The head of the
+graph is the present moment rather than the last bucket boundary, so it always
+agrees with the big number above it.
+
+**Smooth by default; steps are one tap away.** The curve is a monotone cubic
+(Fritsch–Carlson), chosen because it cannot overshoot: between two marks it
+stays within their values, so the graph never draws a price below the cheapest
+reading or above the dearest, which an ordinary spline does at every step. It
+does still imply the price slid where it actually jumped — hence the steps
+view, which draws literally what happened.
+
+**"Last week" means last week's clock, not 168 hours.** The comparison overlay
+is the same weekday at the same wall-clock time, which around a daylight-saving
+change is 167 or 169 hours back, not seven flat days. Subtracting a week of
+milliseconds would line this Friday's 17:00 up against last Friday's 16:00 and
+quietly misreport the evening rush; `sameClockTimeLastWeek` corrects for the
+offset on both ends. Both series share one vertical scale, or the overlay would
+flatter whichever week happened to be cheaper.
 
 **iPhone needs the app installed.** iOS only delivers Web Push to sites added to
 the home screen. The app detects iOS Safari and shows the three-step

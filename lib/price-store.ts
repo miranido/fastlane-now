@@ -1,11 +1,13 @@
 import "server-only";
 import {
+  DEFAULT_HISTORY_RANGE,
   DISPLAY_TIME_ZONE,
-  HISTORY_BUCKET_MINUTES,
-  HISTORY_WINDOW_MINUTES,
+  HISTORY_RANGES,
+  type HistoryRange,
 } from "./config";
 import type { PriceSnapshot } from "./price";
 import { getServiceClient } from "./supabase";
+import { sameClockTimeLastWeek } from "./time";
 
 /**
  * The server can't call fastlane.co.il itself — Cloudflare blocks cloud egress
@@ -75,58 +77,102 @@ export async function readFreshPrice(): Promise<StoredPrice | null> {
 }
 
 /* --- history ---------------------------------------------------------------
- * The graph of the last hour. */
-
-const BUCKET_MS = HISTORY_BUCKET_MINUTES * 60_000;
-const WINDOW_MS = HISTORY_WINDOW_MINUTES * 60_000;
+ * What the graph is drawn from. */
 
 /**
- * Enough rows for an hour of once-a-minute readings several times over. The
- * query orders newest first so hitting this ceiling drops the oldest readings
- * rather than the ones the graph's head is drawn from.
+ * Enough rows for the longest window at once-a-minute readings several times
+ * over. The query orders newest first, so hitting this ceiling drops the
+ * oldest readings rather than the ones the head of the graph is drawn from.
  */
-const HISTORY_MAX_SAMPLES = 500;
+const HISTORY_MAX_SAMPLES = 800;
+
+/**
+ * How far past a bucket boundary the present has to be before the graph adds
+ * a mark for it. Without a floor, a poll landing a second after the
+ * boundary appends a mark a second wide, which the curve has to climb almost
+ * vertically for no information at all.
+ */
+const HEAD_MARK_MIN_GAP_MS = 30_000;
 
 export type PriceHistoryPoint = {
   /** The instant this point describes, ISO. */
   t: string;
-  /** The price in effect then, or null if no reading vouches for that moment. */
+  /** The price then, or null if no reading vouches for that moment. */
   price: number | null;
+};
+
+export type PriceHistory = {
+  points: PriceHistoryPoint[];
+  /**
+   * The same marks a week earlier, or null if not asked for. Timestamps are
+   * the *current* marks, so the two series line up on one axis; each value
+   * comes from the same clock time seven days back.
+   */
+  comparison: PriceHistoryPoint[] | null;
 };
 
 type Sample = { price: number; at: number };
 
-/** The instants the graph is drawn from: five-minute marks, then the present. */
-export function historyMarks(now: number): number[] {
-  // Marks sit on wall-clock five-minute boundaries so the axis labels hold
-  // still between polls.
-  const end = Math.floor(now / BUCKET_MS) * BUCKET_MS;
+/** The instants a range is drawn from: its own bucket boundaries, then now. */
+export function historyMarks(range: HistoryRange, now: number): number[] {
+  const { windowMinutes, bucketMinutes } = HISTORY_RANGES[range];
+  const bucketMs = bucketMinutes * 60_000;
+
+  // Marks sit on wall-clock boundaries so the axis labels hold still between
+  // polls rather than sliding a few seconds left on every refresh.
+  const end = Math.floor(now / bucketMs) * bucketMs;
+
   const marks: number[] = [];
-  for (let mark = end - WINDOW_MS; mark <= end; mark += BUCKET_MS) {
+  for (let mark = end - windowMinutes * 60_000; mark <= end; mark += bucketMs) {
     marks.push(mark);
   }
-  // Finish on the present moment, so the head of the graph is the same reading
-  // the big number above it shows rather than one up to five minutes behind.
-  if (now > end) marks.push(now);
+  // Finish on the present, so the head of the graph is the reading the big
+  // number above it shows rather than one up to a whole bucket behind.
+  if (now - end >= HEAD_MARK_MIN_GAP_MS) marks.push(now);
   return marks;
 }
 
 /**
- * A price holds until the next reading changes it, so each mark takes the last
- * reading at or before it rather than an average — the graph is a staircase,
- * which is what a toll actually does.
+ * `sample`: a price holds until the next reading changes it, so each mark
+ * takes the last reading at or before it — the graph is a staircase, which is
+ * what a toll actually does. The carry-forward stops at PRICE_STALE_AFTER_MS
+ * for the same reason the live display goes blank: past that the fetcher was
+ * down, so we know nothing about those minutes rather than knowing the price
+ * stayed put.
  *
- * The carry-forward stops at PRICE_STALE_AFTER_MS for the same reason the live
- * display does: past that the fetcher was down, so we know nothing about those
- * minutes rather than knowing the price stayed put. Those marks come back null
- * and the line breaks there.
+ * `average`: the mean of the readings inside the window behind each mark. A
+ * quarter-hour bucket can span two price changes, and no single reading in it
+ * is more the truth than the others.
+ *
+ * Either way a mark with nothing behind it comes back null and breaks the line.
  *
  * `samples` must be oldest-first.
  */
 export function bucketSamples(
   samples: Sample[],
   marks: number[],
+  range: HistoryRange,
 ): PriceHistoryPoint[] {
+  const { mode, bucketMinutes } = HISTORY_RANGES[range];
+  const windowMs = bucketMinutes * 60_000;
+
+  if (mode === "average") {
+    return marks.map((mark) => {
+      const inWindow = samples.filter(
+        (sample) => sample.at > mark - windowMs && sample.at <= mark,
+      );
+      if (!inWindow.length) return { t: new Date(mark).toISOString(), price: null };
+      const mean =
+        inWindow.reduce((sum, sample) => sum + sample.price, 0) / inWindow.length;
+      return {
+        t: new Date(mark).toISOString(),
+        // Two decimals: an average of shekel prices is rarely a whole one, and
+        // more digits than this is precision the readings don't have.
+        price: Math.round(mean * 100) / 100,
+      };
+    });
+  }
+
   let index = 0;
   let current: Sample | null = null;
 
@@ -144,31 +190,73 @@ export function bucketSamples(
   });
 }
 
-/** The last hour as five-minute steps. */
-export async function readPriceHistory(
-  now: number = Date.now(),
-): Promise<PriceHistoryPoint[]> {
-  const marks = historyMarks(now);
+/** How far before the first mark a reading can still matter to it. */
+function lookbackMs(range: HistoryRange): number {
+  const { mode, bucketMinutes } = HISTORY_RANGES[range];
+  return mode === "average" ? bucketMinutes * 60_000 : PRICE_STALE_AFTER_MS;
+}
 
-  // A reading from just before the window still sets the price at its first
-  // mark, so the query reaches back one staleness window further.
+/** The readings covering a set of marks, oldest first. */
+async function readSamples(
+  marks: number[],
+  range: HistoryRange,
+): Promise<Sample[]> {
+  const from = marks[0] - lookbackMs(range);
+  const to = marks[marks.length - 1];
+
   const { data, error } = await getServiceClient()
     .from("price_samples")
     .select("price, observed_at")
-    .gte("observed_at", new Date(marks[0] - PRICE_STALE_AFTER_MS).toISOString())
-    .lte("observed_at", new Date(now).toISOString())
+    .gte("observed_at", new Date(from).toISOString())
+    .lte("observed_at", new Date(to).toISOString())
     .order("observed_at", { ascending: false })
     .limit(HISTORY_MAX_SAMPLES)
     .returns<{ price: number; observed_at: string }[]>();
 
   if (error) throw new Error(`failed to read price history: ${error.message}`);
 
-  const samples = (data ?? [])
+  return (data ?? [])
     .map((row) => ({
       price: Number(row.price),
       at: new Date(row.observed_at).getTime(),
     }))
     .reverse();
+}
 
-  return bucketSamples(samples, marks);
+/**
+ * The graph's data: one series for the chosen range, and optionally the same
+ * span of last week's matching weekday laid over it.
+ */
+export async function readPriceHistory({
+  range = DEFAULT_HISTORY_RANGE,
+  compare = false,
+  now = Date.now(),
+}: {
+  range?: HistoryRange;
+  compare?: boolean;
+  now?: number;
+} = {}): Promise<PriceHistory> {
+  const marks = historyMarks(range, now);
+  const points = bucketSamples(await readSamples(marks, range), marks, range);
+
+  if (!compare) return { points, comparison: null };
+
+  // Same clock time a week back, which is the same weekday — a Monday rush
+  // hour is only worth comparing against another Monday rush hour.
+  const shift = now - sameClockTimeLastWeek(now);
+  const pastMarks = marks.map((mark) => mark - shift);
+  const past = bucketSamples(
+    await readSamples(pastMarks, range),
+    pastMarks,
+    range,
+  );
+
+  return {
+    points,
+    // Re-stamped onto this week's marks so both series share one axis.
+    comparison: past.map((point, index) => ({
+      t: points[index].t,
+      price: point.price,
+    })),
+  };
 }

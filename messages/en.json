@@ -17,12 +17,32 @@
     "live": "Updates automatically"
   },
   "chart": {
-    "heading": "The last hour",
-    "hint": "In 5-minute steps",
+    "heading": "Price history",
+    "rangeLabel": "Time range",
+    "range": {
+      "30m": "30 min",
+      "1h": "1 hour",
+      "2h": "2 hours"
+    },
+    "resolution": {
+      "30m": "2-minute steps",
+      "1h": "5-minute steps",
+      "2h": "15-minute averages"
+    },
+    "curve": {
+      "label": "Line shape",
+      "smooth": "Smooth",
+      "steps": "Steps"
+    },
+    "compare": "Compare to last week",
+    "legendNow": "Today",
+    "legendLastWeek": "Same day last week",
+    "noComparison": "No readings from this time last week yet.",
     "empty": "Not enough readings yet for a graph",
     "gapNote": "A break in the line is a stretch with no reading.",
-    "summary": "Over the last hour the price ran between {low} and {high} ₪. It is {current} ₪ now.",
-    "summaryFlat": "The price has held at {price} ₪ for the last hour."
+    "summary": "Over this span the price ran between {low} and {high} ₪. It is {current} ₪ now.",
+    "summaryFlat": "The price has held at {price} ₪ across this span.",
+    "summaryCompare": "The same hours last week ran between {low} and {high} ₪."
   },
   "pull": {
     "pull": "Pull down to refresh",
